@@ -1,0 +1,15 @@
+*.exe
+*.zip
+*.generated.cs
+*-results.txt
+*Check.cs.txt
+*Debug.cs.txt
+dependencies/
+dist/
+evidence/
+samples/
+*.user
+*.log
+.vs/
+!codecs/magick.exe
+!installer/redist/MicrosoftEdgeWebview2Setup.exe
