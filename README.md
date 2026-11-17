@@ -6,13 +6,17 @@ Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어
 
 Windows 10/11 64비트, .NET Framework 4.8 이상이 필요합니다.
 
-1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.1-win-x64.zip`을 받습니다.
+1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.2-win-x64.zip`을 받습니다.
 2. ZIP 파일의 **압축을 모두 풀고** 원하는 폴더에 둡니다.
 3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, `video-runtime`, DLL 파일도 함께 유지하세요.
 
 JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**에서 확장자를 선택하고 연결을 누르세요. Windows에서 LumaView를 최종 선택해야 하며 기존 UserChoice를 강제로 변경하지 않습니다. 연결한 뒤 프로그램 폴더를 옮겼다면 새 위치에서 다시 연결하세요.
 
-3D 보기를 사용하려면 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)이 필요합니다. 대부분의 Windows 10/11에는 이미 설치되어 있습니다. .NET Framework 4.8이 없는 PC에서는 먼저 해당 구성 요소를 설치하세요.
+다른 PC에서는 **설정 → 구성 요소 → 다운로드 및 연결**을 누르세요. 3D 보기용 WebView2가 없으면 Microsoft에서 설치 프로그램을 내려받고 Microsoft 서명을 검증한 뒤 자동 설치합니다. 이미 준비된 PC에서는 다운로드를 건너뜁니다. 설치 후 파일 연결 후보를 등록하고 Windows 기본 앱 설정을 엽니다. 그 화면에서 LumaView를 최종 선택하세요. Windows 11 지원 버전에서는 앱 설정으로 바로 이동하며, Windows 10에서는 기본 앱 설정에서 LumaView를 선택해야 할 수 있습니다.
+
+기본 연결 대상은 지원 형식 전체입니다. 일부만 연결하려면 먼저 **파일 연결** 탭에서 확장자를 체크하세요. **파일 연결도 함께 설정**을 해제하면 구성 요소만 준비합니다. 영상 엔진·이미지 코덱·HDR 맵은 ZIP에 포함되어 별도 설치가 필요 없으며, 구성 요소 탭에서 포함 여부도 확인합니다. 누락된 배포 파일은 ZIP 전체를 다시 압축 해제하세요.
+
+WebView2 다운로드·설치에는 인터넷이 필요하며 회사 PC의 설치 정책에 따라 제한될 수 있습니다. 실패하면 이유를 표시하고 재시도할 수 있습니다. 앱 실행 자체에 필요한 .NET Framework 4.8은 미리 설치되어 있어야 합니다.
 
 프로그램 설치 과정은 없습니다. 설정과 캐시는 사용자 프로필에 보관하므로 다른 버전 폴더에서도 기존 설정을 사용합니다.
 
@@ -60,7 +64,7 @@ Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니�
 
 `VERSION`은 `major.minor.patch` 형식입니다. `dist`에 휴대용 ZIP과 `SHA256SUMS.txt`가 생성됩니다. `.github/workflows/release.yml`은 `v0.1.1` 형태의 태그를 푸시하면 검사와 빌드를 수행하고 GitHub 릴리스 **초안**을 만듭니다. 검사 후 게시하면 앱의 업데이트 버튼에서 확인할 수 있습니다. 설치 도구는 ZIP 배포에 필요하지 않습니다.
 
-기존 전체화면 이미지/영상/시퀀스/3D 표시는 직접 실행되는 로컬 프로그램입니다. 자동 시작 업데이트 검사와 사용 기록 전송은 없으며, 업데이트 버튼을 누를 때 GitHub에 접속합니다.
+기존 전체화면 이미지/영상/시퀀스/3D 표시는 직접 실행되는 로컬 프로그램입니다. 자동 시작 업데이트 검사와 사용 기록 전송은 없으며, 업데이트 버튼을 누를 때 GitHub에 접속합니다. 구성 요소 설치를 요청하면 필요한 경우에만 Microsoft 서버에서 WebView2를 내려받습니다.
 
 ## 라이선스
 

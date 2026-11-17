@@ -308,12 +308,13 @@ sealed class SettingsDialog:Form {
         var save=new Button{Left=224,Top=205,Width=90,Height=30,Text=Ui.T("저장")};var cancel=new Button{Left=324,Top=205,Width=90,Height=30,Text=Ui.T("취소"),DialogResult=DialogResult.Cancel};
         Controls.AddRange(new Control[]{new Label{Left=24,Top=34,Width=100,Text=Ui.T("언어")},new Label{Left=24,Top=89,Width=100,Text=Ui.T("테마")},language,theme,colors,note,save,cancel});AcceptButton=save;CancelButton=cancel;
         save.Click+=delegate{try{Ui.SavePalette(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};
-        var tabs=new TabControl{Dock=DockStyle.Fill};var general=new TabPage(Ui.T("일반"));var associations=new TabPage(Ui.T("파일 연결"));
+        var tabs=new TabControl{Dock=DockStyle.Fill};var general=new TabPage(Ui.T("일반"));var associations=new TabPage(Ui.T("파일 연결"));var components=new TabPage(ComponentSetup.Say("구성 요소","Components"));
         var existing=new System.Collections.Generic.List<Control>();foreach(Control child in Controls)existing.Add(child);
         foreach(Control child in existing)if(child!=save&&child!=cancel)general.Controls.Add(child);
         note.Width=510;
         var footer=new Panel{Dock=DockStyle.Bottom,Height=50};save.Location=new Point(390,10);cancel.Location=new Point(490,10);footer.Controls.Add(save);footer.Controls.Add(cancel);
-        tabs.TabPages.Add(general);tabs.TabPages.Add(associations);associations.Controls.Add(new AssociationSettings());Controls.Add(tabs);Controls.Add(footer);
+        var associationSettings=new AssociationSettings();
+        tabs.TabPages.Add(general);tabs.TabPages.Add(components);tabs.TabPages.Add(associations);associations.Controls.Add(associationSettings);components.Controls.Add(new ComponentSettings(()=>associationSettings.SelectedExtensions));Controls.Add(tabs);Controls.Add(footer);
         Ui.Apply(this);colors.RefreshSwatches();
     }
 }

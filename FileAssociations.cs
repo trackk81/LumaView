@@ -103,6 +103,7 @@ static class FileAssociations {
     }
 }
 sealed class AssociationSettings:UserControl {
+    internal string[] SelectedExtensions {get{return list.CheckedItems.Cast<ListViewItem>().Select(i=>(string)i.Tag).ToArray();}}
     Form settingsForm;
     bool connecting;
     readonly ListView list=new ListView{Dock=DockStyle.Fill,View=View.Details,CheckBoxes=true,FullRowSelect=true,HideSelection=false};

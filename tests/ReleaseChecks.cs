@@ -1,4 +1,5 @@
 ﻿using System;using System.IO;using System.Linq;using System.Reflection;using System.Drawing;using System.Windows.Forms;using System.Web.Script.Serialization;using System.Runtime.InteropServices;using Microsoft.Win32;using System.Collections.Generic;
+using System.Threading;using System.Threading.Tasks;
 class ReleaseChecks {
 static Assembly app;static BindingFlags stat=BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
 static object Call(string type,string name,params object[] args){try{return app.GetType("LumaView."+type).GetMethod(name,stat).Invoke(null,args);}catch(TargetInvocationException e){throw e.InnerException;}}
@@ -51,6 +52,31 @@ static void Updater(){
  string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified ZIP bytes");}finally{File.Delete(temp);}
 }
 static IEnumerable<Control> Walk(Control root){foreach(Control child in root.Controls){yield return child;foreach(var nested in Walk(child))yield return nested;}}
+static void Components(){
+ string version="";int installs=0,connections=0;string[] registered=null;
+ Func<string> detect=()=>version;
+ Func<Task> install=()=>{installs++;version="140.0.0.0";return Task.FromResult(0);};
+ Action<string[]> connect=selected=>{connections++;registered=selected;};
+ Action<string[],Func<Task>,CancellationToken> run=(selected,installer,token)=>((Task)Call("ComponentSetup","PrepareCoreAsync",selected,detect,installer,connect,token)).GetAwaiter().GetResult();
+ run(new[]{".png",".glb",".png"},install,CancellationToken.None);
+ Check(installs==1&&connections==1&&registered.SequenceEqual(new[]{".png",".glb"}),"missing WebView2 installs once before selected file types connect");
+ run(new[]{".jpg"},install,CancellationToken.None);
+ Check(installs==1&&connections==2&&registered.SequenceEqual(new[]{".jpg"}),"installed WebView2 skips download and connects selected files");
+ run(new string[0],install,CancellationToken.None);Check(connections==2,"component-only setup does not change file associations");
+ version="";
+ try{run(new[]{".jpg"},()=>{throw new IOException("Offline");},CancellationToken.None);throw new Exception("Offline install should fail");}catch(IOException){}
+ Check(connections==2,"offline setup cannot claim success or change file associations");
+ try{run(new[]{".jpg"},()=>Task.FromResult(0),CancellationToken.None);throw new Exception("Missing runtime should fail");}catch(InvalidOperationException){}
+ Check(connections==2,"installer exit alone is insufficient without runtime detection");
+ using(var stop=new CancellationTokenSource()){
+  Func<Task> cancel=()=>{stop.Cancel();return Task.FromResult(0);};
+  try{run(new[]{".jpg"},cancel,stop.Token);throw new Exception("Cancelled setup should fail");}catch(OperationCanceledException){}
+ }
+ Check(connections==2,"cancelled setup never continues to file associations");
+ int before=installs;
+ try{run(new[]{".not-supported"},install,CancellationToken.None);throw new Exception("Invalid selection should fail");}catch(ArgumentException){}
+ Check(installs==before&&connections==2,"invalid file type selection rejected before any installation");
+}
 static void Layout(){
  using(var form=(Form)Activator.CreateInstance(app.GetType("LumaView.Viewer"),new object[]{null})){
   form.Show();for(int n=0;n<25;n++){Application.DoEvents();System.Threading.Thread.Sleep(10);}
@@ -62,7 +88,18 @@ static void Layout(){
   app.GetType("LumaView.Ui").GetField("Language").SetValue(null,"en");Call("Ui","Apply",form);Check(update.Text=="Update","update label translated to English");
   form.Close();
  }
+ foreach(string language in new[]{"ko","en"}){
+  app.GetType("LumaView.Ui").GetField("Language").SetValue(null,language);
+  using(var settings=(Form)Activator.CreateInstance(app.GetType("LumaView.SettingsDialog"))){
+   settings.Show();var button=Walk(settings).OfType<Button>().Single(x=>x.Name=="prepareComponents");
+   var tabs=Walk(settings).OfType<TabControl>().Single();tabs.SelectedTab=(TabPage)button.Parent.Parent;Application.DoEvents();
+   var status=Walk(settings).OfType<Label>().Single(x=>x.Name=="componentStatus");
+   Check(button.Visible&&button.Enabled&&button.Parent.ClientRectangle.Contains(button.Bounds),"download/connect action visible and usable in "+language);
+   Check(status.Bottom<=status.Parent.ClientSize.Height&&status.Top>=button.Bottom,"component setup status fits below action in "+language);
+   settings.Close();
+  }
+ }
 }
-[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"LumaView.exe"));Application.EnableVisualStyles();Associations();Updater();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater validation and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
+[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"LumaView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
 }
 

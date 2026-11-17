@@ -130,7 +130,7 @@ sealed class ModelViewer:Form {
             core.WebMessageReceived+=OnMessage;
             core.NavigationCompleted+=delegate(object s,CoreWebView2NavigationCompletedEventArgs e){if(!e.IsSuccess&&!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+e.WebErrorStatus;};
             core.Navigate("https://viewer.lumaview.invalid/index.html");
-        }catch(Exception ex){if(!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+ex.Message;}
+        }catch(Exception ex){if(!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+(String.IsNullOrEmpty(ComponentSetup.WebViewVersion())?ComponentSetup.Say("설정 → 구성 요소 → 다운로드 및 연결에서 WebView2를 설치한 뒤 모델을 다시 여세요.","Install WebView2 in Settings → Components → Download and connect, then reopen the model."):ex.Message);}
     }
     async void OnMessage(object sender,CoreWebView2WebMessageReceivedEventArgs e){
         if(closing||!e.Source.StartsWith("https://viewer.lumaview.invalid/",StringComparison.OrdinalIgnoreCase))return;
