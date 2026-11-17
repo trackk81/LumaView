@@ -106,33 +106,40 @@ sealed class AssociationSettings:UserControl {
     internal string[] SelectedExtensions {get{return list.CheckedItems.Cast<ListViewItem>().Select(i=>(string)i.Tag).ToArray();}}
     Form settingsForm;
     bool connecting;
-    readonly ListView list=new ListView{Dock=DockStyle.Fill,View=View.Details,CheckBoxes=true,FullRowSelect=true,HideSelection=false};
-    readonly Label notice=new Label{Dock=DockStyle.Top,Height=78,Padding=new Padding(8),Text=Ui.T("확장자를 체크하고 연결을 누르면 선택한 형식만 표시됩니다.\n열린 화면에서 LumaView를 선택하세요. 검색할 필요가 없습니다.")};
+    readonly ListView list=new ListView{Dock=DockStyle.Fill,View=View.Details,CheckBoxes=true,FullRowSelect=true,HideSelection=false,BorderStyle=BorderStyle.None,ShowItemToolTips=true};
+    readonly WrapLabel notice=ModernUi.Text("",true);
+    readonly ImageList rowHeight=new ImageList();
     public AssociationSettings(){
-        Dock=DockStyle.Fill;list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
-        var buttons=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=82,Padding=new Padding(6),WrapContents=true};
-        var all=new Button{Text=Ui.T("전체 선택"),AutoSize=true};all.Click+=delegate{foreach(ListViewItem item in list.Items)item.Checked=true;};
-        var register=new Button{Text=Ui.T("연결"),AutoSize=true};register.Click+=delegate{
+        Dock=DockStyle.Fill;
+        var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
+        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("더블클릭으로 열 형식을 선택하세요. Windows에서 LumaView를 최종 선택하면 연결됩니다.","Choose the formats to open with a double-click, then confirm LumaView in Windows Settings."),true));
+        list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
+        rowHeight.ImageSize=new Size(1,32);list.SmallImageList=rowHeight;
+        list.Resize+=delegate{int unit=Font.Height;list.Columns[0].Width=unit*5;list.Columns[1].Width=unit*7;list.Columns[2].Width=Math.Max(unit*8,list.ClientSize.Width-unit*12-SystemInformation.VerticalScrollBarWidth-4);};
+        list.OwnerDraw=true;
+        list.DrawColumnHeader+=delegate(object sender,DrawListViewColumnHeaderEventArgs e){using(var brush=new SolidBrush(Ui.Surface))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,e.Header.Text,Font,Rectangle.Inflate(e.Bounds,-8,0),ModernUi.Muted,TextFormatFlags.VerticalCenter|TextFormatFlags.Left|TextFormatFlags.NoPrefix);};
+        list.DrawItem+=delegate(object sender,DrawListViewItemEventArgs e){e.DrawDefault=true;};list.DrawSubItem+=delegate(object sender,DrawListViewSubItemEventArgs e){e.DrawDefault=true;};
+        var all=new ModernButton{Text=Ui.T("전체 선택")};all.Click+=delegate{foreach(ListViewItem item in list.Items)item.Checked=true;};
+        var clear=new ModernButton{Text=ComponentSetup.Say("선택 해제","Clear")};clear.Click+=delegate{foreach(ListViewItem item in list.Items)item.Checked=false;};
+        var register=new ModernButton{Text=ComponentSetup.Say("선택한 형식 연결","Connect selected"),Primary=true};register.Click+=delegate{
             if(connecting)return;connecting=true;register.Enabled=false;
             try{
-                string[] selected=list.CheckedItems.Cast<ListViewItem>().Select(i=>(string)i.Tag).ToArray();
-                FileAssociations.Register(selected);
-                RefreshRows();
-                FileAssociations.OpenSelectedDefaults(selected);
+                string[] selected=SelectedExtensions;FileAssociations.Register(selected);RefreshRows();FileAssociations.OpenSelectedDefaults(selected);
                 notice.Text=Ui.T("Windows에서 선택할 확장자: ")+String.Join(", ",selected)+"\n"+Ui.T("LumaView를 선택해 완료하세요. 연결 결과는 복귀 시 갱신됩니다.");
-            }catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("파일 연결"));}
+            }catch(Exception ex){notice.Text=ex.Message;}
             finally{connecting=false;register.Enabled=true;}
         };
-        var defaults=new Button{Text=Ui.T("Windows 기본 앱 설정 열기"),AutoSize=true};defaults.Click+=delegate{try{FileAssociations.OpenDefaults();}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("파일 연결"));}};
-        var refresh=new Button{Text=Ui.T("새로고침"),AutoSize=true};refresh.Click+=delegate{RefreshRows();};
-        buttons.Controls.AddRange(new Control[]{all,register,defaults,refresh});Controls.Add(list);Controls.Add(notice);Controls.Add(buttons);
+        var refresh=new ModernButton{Text=Ui.T("새로고침")};refresh.Click+=delegate{RefreshRows();};
+        content.Controls.Add(ModernUi.Actions(all,clear,refresh));
+        var listHost=new Panel{Height=330,MinimumSize=new Size(0,240),Margin=new Padding(0,16,0,16)};listHost.Controls.Add(list);content.Controls.Add(listHost);
+        var defaults=new ModernButton{Text=ComponentSetup.Say("Windows 설정 열기","Windows settings")};defaults.Click+=delegate{try{FileAssociations.OpenDefaults();}catch(Exception ex){notice.Text=ex.Message;}};
+        content.Controls.Add(ModernUi.Actions(register,defaults));notice.Margin=new Padding(0,16,0,0);content.Controls.Add(notice);Controls.Add(ModernUi.Scroll(content));
+        notice.Text=ComponentSetup.Say("등록 상태와 현재 기본 앱을 함께 확인할 수 있습니다.","Registration and the current default app are shown separately.");
         RefreshRows();Ui.Apply(this);
         Load+=delegate{settingsForm=FindForm();if(settingsForm!=null)settingsForm.Activated+=RefreshOnReturn;};
     }
     void RefreshOnReturn(object sender,EventArgs e){if(!IsDisposed&&Visible&&!connecting)RefreshRows();}
-    protected override void Dispose(bool disposing){if(disposing&&settingsForm!=null){settingsForm.Activated-=RefreshOnReturn;settingsForm=null;}base.Dispose(disposing);}
-    void RefreshRows(){var selected=list.CheckedItems.Cast<ListViewItem>().Select(i=>(string)i.Tag).ToArray();list.Items.Clear();foreach(string extension in FileAssociations.Extensions){bool registered=FileAssociations.Registered(extension);list.Items.Add(new ListViewItem(new[]{extension,Ui.T(registered?"등록됨":"미등록"),FileAssociations.CurrentApp(extension)}){Tag=extension,Checked=selected.Contains(extension)});}}
+    protected override void Dispose(bool disposing){if(disposing){if(settingsForm!=null){settingsForm.Activated-=RefreshOnReturn;settingsForm=null;}rowHeight.Dispose();}base.Dispose(disposing);}
+    void RefreshRows(){var selected=SelectedExtensions;list.BeginUpdate();try{list.Items.Clear();foreach(string extension in FileAssociations.Extensions){bool registered=FileAssociations.Registered(extension);string current=FileAssociations.CurrentApp(extension);list.Items.Add(new ListViewItem(new[]{extension,Ui.T(registered?"등록됨":"미등록"),current}){Tag=extension,Checked=selected.Contains(extension),ToolTipText=extension+" · "+current});}}finally{list.EndUpdate();}}
 }
 }
-
-

@@ -116,39 +116,41 @@ static class ComponentSetup {
 
 sealed class ComponentSettings:UserControl {
     readonly Func<string[]> selection;
-    readonly TableLayoutPanel rows=new TableLayoutPanel{Dock=DockStyle.Top,Height=190,ColumnCount=2,RowCount=5,Padding=new Padding(6)};
-    readonly CheckBox connect=new CheckBox{Text=ComponentSetup.Say("파일 연결도 함께 설정","Set up file associations too"),Checked=true,AutoSize=true,Location=new Point(12,208),Name="setupFileAssociations"};
-    readonly Label selected=new Label{Location=new Point(12,240),Size=new Size(545,44)};
-    readonly Button prepare=new Button{Text=ComponentSetup.Say("다운로드 및 연결","Download and connect"),Location=new Point(12,300),Size=new Size(215,36),Name="prepareComponents"};
-    readonly Button refresh=new Button{Text=ComponentSetup.Say("다시 확인","Check again"),Location=new Point(240,300),Size=new Size(130,36)};
-    readonly Label status=new Label{Location=new Point(12,349),Size=new Size(545,85),AutoEllipsis=true,Name="componentStatus"};
+    readonly ModernCard rows=new ModernCard();
+    readonly CheckBox connect=new CheckBox{Text=ComponentSetup.Say("파일 연결도 함께 설정","Set up file associations too"),Checked=true,AutoSize=true,Margin=new Padding(0,8,0,10),Name="setupFileAssociations"};
+    readonly WrapLabel selected=ModernUi.Text("",true);
+    readonly ModernButton prepare=new ModernButton{Text=ComponentSetup.Say("다운로드 및 연결","Download and connect"),Primary=true,Name="prepareComponents"};
+    readonly ModernButton refresh=new ModernButton{Text=ComponentSetup.Say("다시 확인","Check again")};
+    readonly WrapLabel status=ModernUi.Text("",true);
     readonly CancellationTokenSource cancel=new CancellationTokenSource();
     bool busy;
     internal ComponentSettings(Func<string[]> selectedExtensions){
-        selection=selectedExtensions;Dock=DockStyle.Fill;AutoScroll=true;
-        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,47));rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,53));
-        for(int i=0;i<5;i++)rows.RowStyles.Add(new RowStyle(SizeType.Percent,20));
-        Controls.Add(rows);Controls.Add(connect);Controls.Add(selected);Controls.Add(prepare);Controls.Add(refresh);Controls.Add(status);
-        status.Text=ComponentSetup.Say("필요한 WebView2를 자동 설치합니다. 파일 연결은 열린 Windows 설정에서 LumaView를 최종 선택하세요.","Missing WebView2 is installed automatically. Finish file associations by choosing LumaView in Windows Settings.");
+        selection=selectedExtensions;Dock=DockStyle.Fill;
+        var content=new SettingsStack();content.Controls.Add(ModernUi.Text(ComponentSetup.Say("구성 요소","Components"),false,21,true));
+        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("새 PC에서도 바로 작업할 수 있도록 준비합니다.","Get everything ready on this PC."),true));
+        var setup=new ModernCard();setup.Controls.Add(ModernUi.Text(ComponentSetup.Say("한 번에 준비하기","Quick setup"),false,12,true));setup.Controls.Add(connect);setup.Controls.Add(selected);setup.Controls.Add(ModernUi.Actions(prepare,refresh));
+        status.Name="componentStatus";status.Margin=new Padding(0,14,0,0);setup.Controls.Add(status);content.Controls.Add(setup);content.Controls.Add(rows);Controls.Add(ModernUi.Scroll(content));
+        status.Text=ComponentSetup.Say("WebView2가 없으면 자동 설치합니다. 파일 연결은 이어서 열리는 Windows 설정에서 완료하세요.","Missing WebView2 is installed automatically. Finish file associations in the Windows Settings page that opens next.");
         prepare.Click+=async delegate{await Prepare();};refresh.Click+=delegate{RefreshStatus();};
         connect.CheckedChanged+=delegate{prepare.Text=connect.Checked?ComponentSetup.Say("다운로드 및 연결","Download and connect"):ComponentSetup.Say("다운로드 및 설치","Download and install");RefreshSelection();};
         VisibleChanged+=delegate{if(Visible&&!busy)RefreshStatus();};RefreshStatus();Ui.Apply(this);
     }
-    void AddRow(int row,string name,string value){
-        rows.Controls.Add(new Label{Text=name,Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,row);
-        rows.Controls.Add(new Label{Text=value,Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true},1,row);
+    void AddRow(string name,string value){
+        var row=new SettingsStack{Margin=new Padding(0,0,0,14)};
+        row.Controls.Add(ModernUi.Text(name,false,10,true));row.Controls.Add(ModernUi.Text(value,true));rows.Controls.Add(row);
     }
     internal void RefreshStatus(){
-        foreach(Control child in rows.Controls.Cast<Control>().ToArray())child.Dispose();rows.Controls.Clear();
+        rows.SuspendLayout();foreach(Control child in rows.Controls.Cast<Control>().ToArray())child.Dispose();rows.Controls.Clear();
+        rows.Controls.Add(ModernUi.Text(ComponentSetup.Say("이 PC의 준비 상태","Component status"),false,12,true));
         string net;try{int release=ComponentSetup.NetRelease();net=release>=533320?"4.8.1+":release>=528040?"4.8":ComponentSetup.Say("4.8 이상 설치 필요","4.8 or later required");}catch{net=ComponentSetup.Say("확인하지 못함","Could not verify");}
-        AddRow(0,".NET Framework",net);
-        string web=ComponentSetup.WebViewVersion();AddRow(1,"3D · Microsoft WebView2",String.IsNullOrEmpty(web)?ComponentSetup.Say("설치 필요 · 자동 다운로드","Missing · automatic download"):ComponentSetup.Say("준비됨 · ","Ready · ")+web);
-        int row=2;foreach(var component in ComponentSetup.BundledComponents())AddRow(row++,component[0],ComponentSetup.HasFiles(component.Skip(1).ToArray())?ComponentSetup.Say("포함됨 · 설치 불필요","Included · no installation needed"):ComponentSetup.Say("누락 · ZIP 전체 압축 해제 필요","Missing · extract the entire ZIP"));
-        RefreshSelection();Ui.Apply(rows);
+        AddRow(".NET Framework",net);
+        string web=ComponentSetup.WebViewVersion();AddRow("Microsoft WebView2",String.IsNullOrEmpty(web)?ComponentSetup.Say("3D 보기 · 설치 필요 · 자동 다운로드","3D viewer · Missing · automatic download"):ComponentSetup.Say("3D 보기 · 준비됨 · ","3D viewer · Ready · ")+web);
+        foreach(var component in ComponentSetup.BundledComponents())AddRow(component[0],ComponentSetup.HasFiles(component.Skip(1).ToArray())?ComponentSetup.Say("배포본에 포함됨 · 설치 불필요","Included with LumaView · no installation needed"):ComponentSetup.Say("파일 누락 · ZIP 전체를 압축 해제하세요.","Files missing · extract the entire release ZIP."));
+        rows.ResumeLayout(true);RefreshSelection();Ui.Apply(rows);
     }
     void RefreshSelection(){
         string[] choices=selection();
-        selected.Text=!connect.Checked?ComponentSetup.Say("구성 요소만 준비합니다.","Only components will be prepared."):choices.Length==0?ComponentSetup.Say("연결 대상: 지원 형식 전체. 일부만 연결하려면 ‘파일 연결’ 탭에서 체크하세요.","File types: all supported formats. To limit this, check formats in the File associations tab."):ComponentSetup.Say("연결 대상: ","File types: ")+String.Join(", ",choices);
+        selected.Text=!connect.Checked?ComponentSetup.Say("구성 요소만 준비합니다.","Only components will be prepared."):choices.Length==0?ComponentSetup.Say("지원 형식 전체를 등록합니다. 일부만 연결하려면 ‘파일 연결’에서 선택하세요.","All supported formats will be registered. To limit this, select formats in File associations."):ComponentSetup.Say("선택한 형식: ","Selected formats: ")+String.Join(", ",choices);
     }
     async Task Prepare(){
         if(busy)return;busy=true;prepare.Enabled=refresh.Enabled=connect.Enabled=false;

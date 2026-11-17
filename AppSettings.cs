@@ -41,42 +41,52 @@ static class Ui {
         Language=language;Theme=theme;CustomColors=snapshot;
     }
     public static string Hex(Color color){return "#"+color.R.ToString("X2")+color.G.ToString("X2")+color.B.ToString("X2");}
-    public static Color Background{get{return Theme=="light"?Color.FromArgb(244,246,248):Theme=="custom"?CustomColors[0]:Color.FromArgb(30,33,38);}}
-    public static Color Surface{get{return Theme=="light"?Color.FromArgb(230,234,239):Theme=="custom"?CustomColors[1]:Color.FromArgb(40,44,51);}}
-    public static Color Foreground{get{return Theme=="light"?Color.FromArgb(30,36,43):Theme=="custom"?CustomColors[2]:Color.FromArgb(239,242,246);}}
-    public static Color Highlight{get{return Theme=="light"?Color.FromArgb(194,222,234):Theme=="custom"?CustomColors[3]:Color.FromArgb(45,86,101);}}
-    public static Color Border{get{return Theme=="light"?Color.FromArgb(180,188,198):Theme=="custom"?CustomColors[4]:Color.FromArgb(135,143,154);}}
+    public static Color Background{get{return Theme=="light"?Color.FromArgb(244,246,250):Theme=="custom"?CustomColors[0]:Color.FromArgb(18,21,27);}}
+    public static Color Surface{get{return Theme=="light"?Color.White:Theme=="custom"?CustomColors[1]:Color.FromArgb(27,32,41);}}
+    public static Color Foreground{get{return Theme=="light"?Color.FromArgb(30,36,43):Theme=="custom"?CustomColors[2]:Color.FromArgb(231,236,244);}}
+    public static Color Highlight{get{return Theme=="light"?Color.FromArgb(194,222,234):Theme=="custom"?CustomColors[3]:Color.FromArgb(36,61,96);}}
+    public static Color Border{get{return Theme=="light"?Color.FromArgb(216,223,234):Theme=="custom"?CustomColors[4]:Color.FromArgb(49,58,73);}}
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control,object> painted=new System.Runtime.CompilerServices.ConditionalWeakTable<Control,object>();
     static void SelectionColors(Control control){
         object marker;if(painted.TryGetValue(control,out marker))return;
         var tree=control as TreeView;
-        if(tree!=null){painted.Add(control,new object());tree.DrawMode=TreeViewDrawMode.OwnerDrawText;tree.DrawNode+=delegate(object sender,DrawTreeNodeEventArgs e){
-            if(Theme!="custom"){e.DrawDefault=true;return;}
-            bool selected=(e.State&TreeNodeStates.Selected)!=0;var bounds=new Rectangle(e.Bounds.X,e.Bounds.Y,Math.Max(1,tree.ClientSize.Width-e.Bounds.X),e.Bounds.Height);
-            using(var brush=new SolidBrush(selected?Highlight:Background))e.Graphics.FillRectangle(brush,bounds);
-            TextRenderer.DrawText(e.Graphics,e.Node.Text,tree.Font,e.Bounds,Foreground,TextFormatFlags.NoPrefix|TextFormatFlags.VerticalCenter);
+        if(tree!=null){painted.Add(control,new object());tree.DrawMode=TreeViewDrawMode.OwnerDrawAll;tree.DrawNode+=delegate(object sender,DrawTreeNodeEventArgs e){
+            bool selected=(e.State&TreeNodeStates.Selected)!=0;var textBounds=e.Node.Bounds;var bounds=new Rectangle(0,textBounds.Y,tree.ClientSize.Width,tree.ItemHeight);
+            using(var brush=new SolidBrush(Background))e.Graphics.FillRectangle(brush,bounds);
+            e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            if(selected)using(var shape=ModernUi.Rounded(new RectangleF(3,bounds.Top+1,Math.Max(1,bounds.Width-6),bounds.Height-2),5))using(var brush=new SolidBrush(Highlight))e.Graphics.FillPath(brush,shape);
+            int iconX=textBounds.X-20,center=bounds.Top+bounds.Height/2;
+            if(tree.ImageList!=null&&e.Node.ImageIndex>=0&&e.Node.ImageIndex<tree.ImageList.Images.Count)tree.ImageList.Draw(e.Graphics,iconX,center-8,e.Node.ImageIndex);
+            if(e.Node.Nodes.Count>0)using(var pen=new Pen(ModernUi.Muted,1.5f)){int x=iconX-12;if(e.Node.IsExpanded)e.Graphics.DrawLines(pen,new[]{new Point(x-3,center-2),new Point(x,center+1),new Point(x+3,center-2)});else e.Graphics.DrawLines(pen,new[]{new Point(x-2,center-3),new Point(x+1,center),new Point(x-2,center+3)});}
+            TextRenderer.DrawText(e.Graphics,e.Node.Text,tree.Font,new Rectangle(textBounds.X,bounds.Y,Math.Max(textBounds.Width,tree.ClientSize.Width-textBounds.X),bounds.Height),Foreground,TextFormatFlags.NoPrefix|TextFormatFlags.VerticalCenter);
         };}
         var list=control as ListView;
         if(list!=null&&list.View==View.LargeIcon){painted.Add(control,new object());list.OwnerDraw=true;list.DrawItem+=delegate(object sender,DrawListViewItemEventArgs e){
-            if(Theme!="custom"){e.DrawDefault=true;return;}
-            using(var brush=new SolidBrush(e.Item.Selected?Highlight:Background))e.Graphics.FillRectangle(brush,e.Bounds);
-            int h=0;if(list.LargeImageList!=null&&e.Item.ImageIndex>=0&&e.Item.ImageIndex<list.LargeImageList.Images.Count){var size=list.LargeImageList.ImageSize;list.LargeImageList.Draw(e.Graphics,e.Bounds.X+(e.Bounds.Width-size.Width)/2,e.Bounds.Y+4,e.Item.ImageIndex);h=size.Height+8;}
-            TextRenderer.DrawText(e.Graphics,e.Item.Text,list.Font,new Rectangle(e.Bounds.X+2,e.Bounds.Y+h,e.Bounds.Width-4,Math.Max(1,e.Bounds.Height-h)),Foreground,TextFormatFlags.HorizontalCenter|TextFormatFlags.WordBreak|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
-            if(e.Item.Focused){using(var pen=new Pen(Border))e.Graphics.DrawRectangle(pen,e.Bounds.X,e.Bounds.Y,Math.Max(0,e.Bounds.Width-1),Math.Max(0,e.Bounds.Height-1));}
+            using(var brush=new SolidBrush(Background))e.Graphics.FillRectangle(brush,e.Bounds);
+            e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using(var shape=ModernUi.Rounded(new RectangleF(e.Bounds.X+3,e.Bounds.Y+2,Math.Max(1,e.Bounds.Width-6),Math.Max(1,e.Bounds.Height-4)),7))
+            using(var brush=new SolidBrush(e.Item.Selected?Highlight:Surface))using(var pen=new Pen(e.Item.Selected?ModernUi.Accent:Border)){e.Graphics.FillPath(brush,shape);e.Graphics.DrawPath(pen,shape);}
+            int caption=Math.Min(list.Font.Height*2+2,TextRenderer.MeasureText(e.Item.Text,list.Font,new Size(Math.Max(1,e.Bounds.Width-20),int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.NoPrefix).Height);
+            int h=8;if(list.LargeImageList!=null&&e.Item.ImageIndex>=0&&e.Item.ImageIndex<list.LargeImageList.Images.Count){var size=list.LargeImageList.ImageSize;int height=Math.Min(size.Height,Math.Max(1,e.Bounds.Height-caption-22));int width=size.Width*height/size.Height;list.LargeImageList.Draw(e.Graphics,e.Bounds.X+(e.Bounds.Width-width)/2,e.Bounds.Y+8,width,height,e.Item.ImageIndex);h=height+14;}
+            TextRenderer.DrawText(e.Graphics,e.Item.Text,list.Font,new Rectangle(e.Bounds.X+10,e.Bounds.Y+h,e.Bounds.Width-20,Math.Max(1,e.Bounds.Height-h-6)),Foreground,TextFormatFlags.HorizontalCenter|TextFormatFlags.WordBreak|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
         };}
     }
     public static void Apply(Control control){
         if(control is CustomColorEditor){((CustomColorEditor)control).RefreshSwatches();return;}
         SelectionColors(control);
         bool image=control is Canvas||control is Filmstrip;
-        if(!image){control.BackColor=control is TextBoxBase||control is ListView||control is TreeView?Background:Surface;control.ForeColor=Foreground;}
+        if(!image){
+            bool inherit=control is Label||control is CheckBox||control is TableLayoutPanel||control is FlowLayoutPanel||control is SettingsStack;
+            control.BackColor=control is ModernCard?Surface:inherit&&control.Parent!=null?control.Parent.BackColor:control is Panel||control is Form||control is UserControl||control is TextBoxBase||control is ListView||control is TreeView?Background:Surface;
+            control.ForeColor=Foreground;
+        }
         if(!(control is TextBoxBase)&&!(control is ListView)&&!(control is TreeView))control.Text=T(control.Text);
         var button=control as ButtonBase;if(button!=null){button.FlatStyle=FlatStyle.Flat;button.FlatAppearance.BorderColor=Border;}
         var strip=control as ToolStrip;if(strip!=null){strip.Renderer=new ToolStripProfessionalRenderer(new Palette());foreach(ToolStripItem item in strip.Items)ApplyItem(item);}
         var list=control as ListView;if(list!=null)foreach(ColumnHeader column in list.Columns)column.Text=T(column.Text);
         if(control.ContextMenuStrip!=null)Apply(control.ContextMenuStrip);
         foreach(Control child in control.Controls)Apply(child);
-        control.Invalidate();
+        ModernUi.Style(control);control.Invalidate();
     }
     static void ApplyItem(ToolStripItem item){item.Text=T(item.Text);item.ToolTipText=T(item.ToolTipText);item.BackColor=Surface;item.ForeColor=Foreground;var drop=item as ToolStripDropDownItem;if(drop!=null){drop.DropDown.Renderer=new ToolStripProfessionalRenderer(new Palette());foreach(ToolStripItem child in drop.DropDownItems)ApplyItem(child);}var combo=item as ToolStripComboBox;if(combo!=null){combo.BackColor=Background;combo.ForeColor=Foreground;for(int i=0;i<combo.Items.Count;i++)combo.Items[i]=T(Convert.ToString(combo.Items[i]));}}
     sealed class Palette:ProfessionalColorTable {
@@ -259,7 +269,7 @@ LumaView 시퀀스	LumaView Sequence
 파일 이름: {0}  [{1}/{2}]\n파일 크기: {3}\n수정 날짜: {4}\n이미지 정보: {5} × {6} px  ({7})\n화면 배율: {8:0}%	File: {0}  [{1}/{2}]\nSize: {3}\nModified: {4}\nImage: {5} × {6} px  ({7})\nZoom: {8:0}%
 파일: {0}  [{1}/{2}]\n크기: {3:N2} MB  ·  수정: {4:yyyy-MM-dd HH:mm:ss}  ·  영상: {5} × {6}  ·  길이: {7}	File: {0}  [{1}/{2}]\nSize: {3:N2} MB  ·  Modified: {4:yyyy-MM-dd HH:mm:ss}  ·  Video: {5} × {6}  ·  Duration: {7}";
 }
-sealed class CustomColorEditor:UserControl {
+sealed class CustomColorEditor:SettingsStack {
     public Color[] Colors=(Color[])Ui.CustomColors.Clone();
     readonly Button[] swatches=new Button[5];
     readonly Preview preview;
@@ -267,55 +277,77 @@ sealed class CustomColorEditor:UserControl {
         string[] names={"UI 배경","메뉴 / 버튼","글자","선택 강조","테두리"};
         for(int i=0;i<5;i++){
             int index=i;
-            Controls.Add(new Label{Left=0,Top=i*38+7,Width=125,Height=25,Text=Ui.T(names[i])});
-            var button=new Button{Left=130,Top=i*38,Width=112,Height=30,FlatStyle=FlatStyle.Flat,AccessibleName=Ui.T(names[i])+" — "+Ui.T("색상 선택")};
+            var row=new TableLayoutPanel{ColumnCount=2,RowCount=1,AutoSize=true,Margin=new Padding(0,0,0,8)};
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var label=ModernUi.Text(Ui.T(names[i]));label.Dock=DockStyle.Fill;label.AutoSize=true;row.Controls.Add(label,0,0);
+            var button=new ModernButton{MinimumSize=new Size(128,38),AccessibleName=Ui.T(names[i])+" — "+Ui.T("색상 선택")};
             button.Click+=delegate{using(var dialog=new ColorDialog{Color=Colors[index],FullOpen=true,AnyColor=true})if(dialog.ShowDialog(this)==DialogResult.OK){Colors[index]=dialog.Color;RefreshSwatches();}};
-            swatches[i]=button;Controls.Add(button);
+            swatches[i]=button;row.Controls.Add(button,1,0);Controls.Add(row);
         }
-        var reset=new Button{Left=0,Top=202,Width=242,Height=30,Text=Ui.T("기본 색으로"),FlatStyle=FlatStyle.Flat};reset.Click+=delegate{Colors=Ui.DefaultColors();RefreshSwatches();};Controls.Add(reset);
-        preview=new Preview(this){Left=265,Top=0,Width=265,Height=232};Controls.Add(preview);RefreshSwatches();
+        var reset=new ModernButton{Text=Ui.T("기본 색으로")};reset.Click+=delegate{Colors=Ui.DefaultColors();RefreshSwatches();};Controls.Add(ModernUi.Actions(reset));
+        preview=new Preview(this){Height=210,MinimumSize=new Size(0,210),Margin=new Padding(0,16,0,0)};Controls.Add(preview);RefreshSwatches();
     }
     public void RefreshSwatches(){
-        BackColor=Ui.Surface;ForeColor=Ui.Foreground;
-        for(int i=0;i<swatches.Length;i++){var button=swatches[i];if(button==null)continue;button.BackColor=Colors[i];button.ForeColor=Colors[i].GetBrightness()>.55?Color.Black:Color.White;button.Text=Ui.Hex(Colors[i]);button.FlatAppearance.BorderColor=Ui.Border;}
+        BackColor=Ui.Surface;ForeColor=Ui.Foreground;foreach(Control child in Controls)Ui.Apply(child);
+        for(int i=0;i<swatches.Length;i++){var button=swatches[i];if(button==null)continue;button.BackColor=Colors[i];((ModernButton)button).SwatchColor=Colors[i];button.ForeColor=Colors[i].GetBrightness()>.55?Color.Black:Color.White;button.Text=Ui.Hex(Colors[i]);button.FlatAppearance.BorderColor=Ui.Border;}
         if(preview!=null)preview.Invalidate();
     }
     sealed class Preview:Control {
         readonly CustomColorEditor editor;
         public Preview(CustomColorEditor editor){this.editor=editor;DoubleBuffered=true;}
         protected override void OnPaint(PaintEventArgs e){
-            var c=editor.Colors;e.Graphics.Clear(c[0]);
-            using(var surface=new SolidBrush(c[1]))using(var text=new SolidBrush(c[2]))using(var selected=new SolidBrush(c[3]))using(var border=new Pen(c[4])){
-                e.Graphics.FillRectangle(surface,0,0,Width,42);e.Graphics.DrawLine(border,0,42,Width,42);
-                e.Graphics.DrawString(Ui.T("미리보기"),Font,text,12,13);
-                e.Graphics.FillRectangle(surface,12,64,Width-24,38);e.Graphics.DrawRectangle(border,12,64,Width-24,38);
-                e.Graphics.DrawString(Ui.T("메뉴 / 버튼"),Font,text,22,75);
-                e.Graphics.DrawString("LumaView  ·  image.png",Font,text,16,123);
-                e.Graphics.FillRectangle(selected,12,158,Width-24,38);e.Graphics.DrawString(Ui.T("선택 강조"),Font,text,22,169);
-                e.Graphics.DrawRectangle(border,0,0,Width-1,Height-1);
+            var c=editor.Colors;e.Graphics.Clear(c[0]);int pad=Math.Max(12,Font.Height*3/4);
+            using(var surface=new SolidBrush(c[1]))using(var selected=new SolidBrush(c[3]))using(var border=new Pen(c[4])){
+                var header=new Rectangle(0,0,Width,Height/5);e.Graphics.FillRectangle(surface,header);
+                TextRenderer.DrawText(e.Graphics,Ui.T("미리보기"),Font,Rectangle.Inflate(header,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
+                var button=new Rectangle(pad,Height*3/10,Math.Max(1,Width-pad*2),Height/5);e.Graphics.FillRectangle(surface,button);e.Graphics.DrawRectangle(border,button);
+                TextRenderer.DrawText(e.Graphics,Ui.T("메뉴 / 버튼"),Font,Rectangle.Inflate(button,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(e.Graphics,"LumaView  ·  image.png",Font,new Rectangle(pad,Height*11/20,Width-pad*2,Height/6),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
+                var highlight=new Rectangle(pad,Height*3/4,Math.Max(1,Width-pad*2),Height/5);e.Graphics.FillRectangle(selected,highlight);
+                TextRenderer.DrawText(e.Graphics,Ui.T("선택 강조"),Font,Rectangle.Inflate(highlight,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);e.Graphics.DrawRectangle(border,0,0,Width-1,Height-1);
             }
         }
     }
 }
 sealed class SettingsDialog:Form {
+    readonly Panel pageHost=new Panel{Dock=DockStyle.Fill};
+    readonly Control[] pages=new Control[3];
+    readonly ModernButton[] navigation=new ModernButton[3];
+    internal void SelectPage(int index){
+        for(int i=0;i<pages.Length;i++){pages[i].Visible=i==index;navigation[i].Selected=i==index;navigation[i].Invalidate();}
+        pages[index].BringToFront();pages[index].PerformLayout();
+    }
     public SettingsDialog(){
-        Text=AppUpdater.WindowTitle(Ui.T("설정"));Font=new Font("Malgun Gothic",10);ClientSize=new Size(600,530);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;ShowInTaskbar=false;StartPosition=FormStartPosition.CenterParent;
-        var language=new ComboBox{Left=135,Top=30,Width=275,DropDownStyle=ComboBoxStyle.DropDownList};language.Items.AddRange(new object[]{"한국어","English"});language.SelectedIndex=Ui.Language=="en"?1:0;
-        var theme=new ComboBox{Left=135,Top=85,Width=275,DropDownStyle=ComboBoxStyle.DropDownList};theme.Items.AddRange(new object[]{Ui.T("어둡게"),Ui.T("밝게"),Ui.T("커스텀")});theme.SelectedIndex=Ui.Theme=="light"?1:Ui.Theme=="custom"?2:0;
-        var colors=new CustomColorEditor{Left=24,Top=140,Width=540,Height=250};
-        colors.Enabled=theme.SelectedIndex==2;theme.SelectedIndexChanged+=delegate{colors.Enabled=theme.SelectedIndex==2;};
-        var note=new Label{Left=24,Top=410,Width=390,Height=48,Text=Ui.T("선택한 설정은 바로 적용되며 다음 실행에도 유지됩니다.")};
-        var save=new Button{Left=224,Top=205,Width=90,Height=30,Text=Ui.T("저장")};var cancel=new Button{Left=324,Top=205,Width=90,Height=30,Text=Ui.T("취소"),DialogResult=DialogResult.Cancel};
-        Controls.AddRange(new Control[]{new Label{Left=24,Top=34,Width=100,Text=Ui.T("언어")},new Label{Left=24,Top=89,Width=100,Text=Ui.T("테마")},language,theme,colors,note,save,cancel});AcceptButton=save;CancelButton=cancel;
-        save.Click+=delegate{try{Ui.SavePalette(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};
-        var tabs=new TabControl{Dock=DockStyle.Fill};var general=new TabPage(Ui.T("일반"));var associations=new TabPage(Ui.T("파일 연결"));var components=new TabPage(ComponentSetup.Say("구성 요소","Components"));
-        var existing=new System.Collections.Generic.List<Control>();foreach(Control child in Controls)existing.Add(child);
-        foreach(Control child in existing)if(child!=save&&child!=cancel)general.Controls.Add(child);
-        note.Width=510;
-        var footer=new Panel{Dock=DockStyle.Bottom,Height=50};save.Location=new Point(390,10);cancel.Location=new Point(490,10);footer.Controls.Add(save);footer.Controls.Add(cancel);
+        AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
+        Text=AppUpdater.WindowTitle(Ui.T("설정"));Font=new Font("Segoe UI",10);ClientSize=new Size(940,720);MinimumSize=new Size(700,480);FormBorderStyle=FormBorderStyle.Sizable;MaximizeBox=true;MinimizeBox=false;ShowInTaskbar=false;StartPosition=FormStartPosition.CenterParent;
+        var language=new ModernCombo{Name="settingsLanguage"};language.Items.AddRange(new object[]{"한국어","English"});language.SelectedIndex=Ui.Language=="en"?1:0;
+        var theme=new ModernCombo{Name="settingsTheme"};theme.Items.AddRange(new object[]{Ui.T("어둡게"),Ui.T("밝게"),Ui.T("커스텀")});theme.SelectedIndex=Ui.Theme=="light"?1:Ui.Theme=="custom"?2:0;
+        var colors=new CustomColorEditor();
+        var appearance=new ModernCard();appearance.Controls.Add(ModernUi.Text(Ui.T("언어"),false,10,true));appearance.Controls.Add(language);appearance.Controls.Add(ModernUi.Text(Ui.T("테마"),false,10,true));appearance.Controls.Add(theme);
+        var custom=new ModernCard();custom.Controls.Add(ModernUi.Text(ComponentSetup.Say("사용자 색상","Custom palette"),false,12,true));custom.Controls.Add(colors);custom.Visible=theme.SelectedIndex==2;
+        theme.SelectedIndexChanged+=delegate{custom.Visible=theme.SelectedIndex==2;};
+        var general=new SettingsStack();general.Controls.Add(ModernUi.Text(Ui.T("일반"),false,21,true));general.Controls.Add(ModernUi.Text(ComponentSetup.Say("편안한 작업 환경을 만들어 보세요.","Make your workspace feel right."),true));general.Controls.Add(appearance);general.Controls.Add(custom);
         var associationSettings=new AssociationSettings();
-        tabs.TabPages.Add(general);tabs.TabPages.Add(components);tabs.TabPages.Add(associations);associations.Controls.Add(associationSettings);components.Controls.Add(new ComponentSettings(()=>associationSettings.SelectedExtensions));Controls.Add(tabs);Controls.Add(footer);
-        Ui.Apply(this);colors.RefreshSwatches();
+        pages[0]=ModernUi.Scroll(general);pages[1]=new ComponentSettings(()=>associationSettings.SelectedExtensions);pages[2]=associationSettings;
+        foreach(var page in pages){page.Dock=DockStyle.Fill;pageHost.Controls.Add(page);}
+        var rail=new SettingsStack{Dock=DockStyle.Top,Padding=new Padding(14,20,10,12)};
+        string[] names={Ui.T("일반"),ComponentSetup.Say("구성 요소","Components"),Ui.T("파일 연결")};
+        for(int i=0;i<names.Length;i++){int index=i;var button=new ModernButton{Font=Font,Text=names[i],Name="settingsPage"+i,Margin=new Padding(0,0,0,8),MinimumSize=new Size(130,44)};button.Click+=delegate{SelectPage(index);};navigation[i]=button;rail.Controls.Add(button);}
+        int railWidth=166;foreach(var item in navigation)railWidth=Math.Max(railWidth,item.GetPreferredSize(Size.Empty).Width+rail.Padding.Horizontal);
+        var sidebar=new Panel{Dock=DockStyle.Left,Width=railWidth};sidebar.Controls.Add(rail);
+        var body=new Panel{Dock=DockStyle.Fill};body.Controls.Add(pageHost);body.Controls.Add(sidebar);
+        var header=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,Padding=new Padding(24,18,24,14)};
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var heading=ModernUi.Text("LumaView  /  "+Ui.T("설정"),false,15,true);heading.Dock=DockStyle.Fill;heading.AutoSize=true;heading.MinimumSize=new Size(0,heading.Font.Height+6);header.Controls.Add(heading,0,0);
+        header.Controls.Add(new Label{Text="v"+AppUpdater.CurrentVersion,AutoSize=true,Anchor=AnchorStyles.Right,ForeColor=ModernUi.Muted},1,0);
+        var save=new ModernButton{Text=Ui.T("저장"),Primary=true,Name="settingsSave"};var cancel=new ModernButton{Text=ComponentSetup.Say("닫기","Close"),DialogResult=DialogResult.Cancel};AcceptButton=save;CancelButton=cancel;
+        save.Click+=delegate{try{Ui.SavePalette(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};
+        var footer=new TableLayoutPanel{Dock=DockStyle.Bottom,AutoSize=true,ColumnCount=2,Padding=new Padding(24,14,16,14)};
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var saveNote=ModernUi.Text(ComponentSetup.Say("언어와 테마는 저장하면 적용됩니다.","Save to apply language and appearance."),true);saveNote.Dock=DockStyle.Fill;footer.Controls.Add(saveNote,0,0);
+        var footerActions=ModernUi.Actions(cancel,save);footerActions.WrapContents=false;footer.Controls.Add(footerActions,1,0);
+        Controls.Add(body);Controls.Add(footer);Controls.Add(header);Ui.Apply(this);colors.RefreshSwatches();SelectPage(0);
+        Shown+=delegate{var area=Screen.FromControl(this).WorkingArea;if(Width>area.Width-24||Height>area.Height-24){MinimumSize=new Size(Math.Min(MinimumSize.Width,area.Width-24),Math.Min(MinimumSize.Height,area.Height-24));Size=new Size(Math.Min(Width,area.Width-24),Math.Min(Height,area.Height-24));CenterToParent();}ModernUi.TitleBar(this);};
     }
 }
 partial class Viewer {

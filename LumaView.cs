@@ -139,8 +139,9 @@ partial class Viewer : Form {
     bool startupOpening;
     public Viewer(string path) {
         startupOpening=path!=null && File.Exists(path);
-        Text=AppUpdater.AppTitle; Size=new Size(1120,760); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
-        Font=new Font("Malgun Gothic",9); BackColor=Color.FromArgb(24,26,30); KeyPreview=true; AllowDrop=true;
+        AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
+        Text=AppUpdater.AppTitle; Size=new Size(1200,800); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
+        Font=new Font("Segoe UI",10); BackColor=Ui.Background; KeyPreview=true; AllowDrop=true;
         toolbar.GripStyle=ToolStripGripStyle.Hidden; toolbar.Padding=new Padding(10,8,10,8); toolbar.BackColor=Color.FromArgb(38,42,48); toolbar.ForeColor=Color.White; toolbar.RenderMode=ToolStripRenderMode.System;
         Add(Ui.T("탐색기"),ToggleExplorer,"Ctrl+B"); Add(Ui.T("목록"),ShowPicker,"Enter"); Add(Ui.T("열기"),Choose,"Ctrl+O"); Add(Ui.T("폴더"),Folder,"Ctrl+Shift+O"); Sep();
         Add(Ui.T("◀ 이전"),delegate{Navigate(-1);},"Left"); Add(Ui.T("다음 ▶"),delegate{Navigate(1);},"Right / Space"); Sep();
@@ -156,6 +157,7 @@ partial class Viewer : Form {
         interval.Items.AddRange(new object[]{Ui.T("1초"),Ui.T("3초"),Ui.T("5초"),Ui.T("10초")}); interval.SelectedIndex=1;
         interval.SelectedIndexChanged+=delegate{slide.Interval=new[]{1000,3000,5000,10000}[interval.SelectedIndex];}; toolbar.Items.Add(interval);
         AddDetailsButton(); Add(Ui.T("목록으로"),Fullscreen,"Esc / F11");
+        status.Padding=new Padding(14,6,14,6);info.AutoToolTip=true;
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
         SetupWorkspace(); Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
         canvas.Changed+=UpdateInfo; canvas.DoubleClick+=delegate{Fullscreen();};

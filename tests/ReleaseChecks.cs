@@ -92,10 +92,10 @@ static void Layout(){
   app.GetType("LumaView.Ui").GetField("Language").SetValue(null,language);
   using(var settings=(Form)Activator.CreateInstance(app.GetType("LumaView.SettingsDialog"))){
    settings.Show();var button=Walk(settings).OfType<Button>().Single(x=>x.Name=="prepareComponents");
-   var tabs=Walk(settings).OfType<TabControl>().Single();tabs.SelectedTab=(TabPage)button.Parent.Parent;Application.DoEvents();
+   settings.GetType().GetMethod("SelectPage",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(settings,new object[]{1});Application.DoEvents();
    var status=Walk(settings).OfType<Label>().Single(x=>x.Name=="componentStatus");
    Check(button.Visible&&button.Enabled&&button.Parent.ClientRectangle.Contains(button.Bounds),"download/connect action visible and usable in "+language);
-   Check(status.Bottom<=status.Parent.ClientSize.Height&&status.Top>=button.Bottom,"component setup status fits below action in "+language);
+   Check(status.Bottom<=status.Parent.ClientSize.Height&&status.PointToScreen(System.Drawing.Point.Empty).Y>=button.PointToScreen(new System.Drawing.Point(0,button.Height)).Y,"component setup status fits below action in "+language);
    settings.Close();
   }
  }

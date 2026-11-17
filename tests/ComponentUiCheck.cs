@@ -21,7 +21,7 @@ class ComponentUiCheck {
             if(String.IsNullOrEmpty(runtime))throw new Exception("This non-installing smoke test requires an existing WebView2 runtime.");
             using(var settings=(Form)Activator.CreateInstance(app.GetType("LumaView.SettingsDialog"))){
                 settings.Show();var controls=Walk(settings).ToArray();
-                var tabs=controls.OfType<TabControl>().Single();tabs.SelectedIndex=1;
+                settings.GetType().GetMethod("SelectPage",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(settings,new object[]{1});
                 controls.OfType<CheckBox>().Single(x=>x.Name=="setupFileAssociations").Checked=false;
                 var prepare=controls.OfType<Button>().Single(x=>x.Name=="prepareComponents");
                 var status=controls.OfType<Label>().Single(x=>x.Name=="componentStatus");

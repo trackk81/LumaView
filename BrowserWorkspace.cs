@@ -26,22 +26,28 @@ partial class Viewer {
     int folderVersion;
     void SetupWorkspace() {
         split.Dock=DockStyle.Fill;split.Size=new Size(1100,600);split.SplitterDistance=265;split.Panel1MinSize=160;split.Panel2MinSize=300;split.BackColor=Color.FromArgb(58,62,68);
-        var addressBar=new Panel{Dock=DockStyle.Top,Height=36,Padding=new Padding(7,6,7,5),BackColor=Color.FromArgb(44,48,54)};
-        var up=new Button{Text="↑",Dock=DockStyle.Left,Width=34,ForeColor=Color.White,FlatStyle=FlatStyle.Flat};
-        var refresh=new Button{Text=Ui.T("새로고침"),Dock=DockStyle.Right,Width=85,ForeColor=Color.White,FlatStyle=FlatStyle.Flat};
-        folderAddress.Dock=DockStyle.Fill;folderAddress.BackColor=Color.FromArgb(32,35,40);folderAddress.ForeColor=Color.White;folderAddress.BorderStyle=BorderStyle.FixedSingle;
-        addressBar.Controls.Add(folderAddress);addressBar.Controls.Add(up);addressBar.Controls.Add(refresh);
-        var grouping=new CheckBox{Text=Ui.T("SQ 묶기"),Appearance=Appearance.Button,Checked=true,Dock=DockStyle.Right,Width=90,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Color.White,FlatStyle=FlatStyle.Flat};addressBar.Controls.Add(grouping);grouping.BringToFront();
-        var settings=new Button{Text=Ui.T("설정"),Dock=DockStyle.Right,Width=85,FlatStyle=FlatStyle.Flat};addressBar.Controls.Add(settings);settings.BringToFront();settings.Click+=delegate{ShowSettings();};
-        var update=new Button{Name="updateButton",Text=Ui.T("업데이트"),Width=90,FlatStyle=FlatStyle.Flat};
-        update.Click+=async delegate{await AppUpdater.CheckAsync(this,update);};
-        var actions=new FlowLayoutPanel{Dock=DockStyle.Right,Width=368,WrapContents=false,Margin=Padding.Empty,Padding=Padding.Empty};
-        foreach(Control action in new Control[]{grouping,refresh,settings,update}){action.Dock=DockStyle.None;action.Height=25;action.Margin=Padding.Empty;actions.Controls.Add(action);}addressBar.Controls.Add(actions);actions.BringToFront();
-        grouping.CheckedChanged+=delegate{groupSequences=grouping.Checked;if(browsingFolder!=null)Browse(browsingFolder);};
+        var addressBar=new SettingsStack{Dock=DockStyle.Top,Padding=new Padding(18,14,18,14),Margin=Padding.Empty};
+        var heading=new TableLayoutPanel{ColumnCount=2,AutoSize=true,Margin=new Padding(0,0,0,12)};
+        heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));heading.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var brand=new SettingsStack{Margin=Padding.Empty};brand.Controls.Add(ModernUi.Text("LumaView",false,17,true));brand.Controls.Add(ModernUi.Text(ComponentSetup.Say("이미지 · 시퀀스 · 영상 · 3D","Images · Sequences · Video · 3D"),true,9));heading.Controls.Add(brand,0,0);
+        var grouping=new ModernButton{Text=Ui.T("SQ 묶기"),Selected=true};
+        var refresh=new ModernButton{Text=Ui.T("새로고침")};
+        var settings=new ModernButton{Text=Ui.T("설정")};settings.Click+=delegate{ShowSettings();};
+        var update=new ModernButton{Name="updateButton",Text=Ui.T("업데이트")};update.Click+=async delegate{await AppUpdater.CheckAsync(this,update);};
+        var actions=ModernUi.Actions(grouping,refresh,settings,update);actions.WrapContents=false;actions.Anchor=AnchorStyles.Right;actions.Margin=Padding.Empty;
+        heading.Controls.Add(actions,1,0);addressBar.Controls.Add(heading);
+        var location=new TableLayoutPanel{ColumnCount=3,AutoSize=true,Margin=Padding.Empty};
+        location.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));location.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));location.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var up=new ModernButton{Text="↑",MinimumSize=new Size(42,40),AccessibleName=ComponentSetup.Say("상위 폴더","Parent folder")};
+        folderAddress.Dock=DockStyle.None;folderAddress.BorderStyle=BorderStyle.None;folderAddress.Margin=Padding.Empty;
+        var address=new ModernCard{Padding=new Padding(12,11,12,11),Margin=new Padding(0,0,10,0),Dock=DockStyle.Fill};address.Controls.Add(folderAddress);
+        var chooseFolder=new ModernButton{Text=ComponentSetup.Say("폴더 열기","Open folder"),Margin=Padding.Empty};chooseFolder.Click+=delegate{Folder();};
+        location.Controls.Add(up,0,0);location.Controls.Add(address,1,0);location.Controls.Add(chooseFolder,2,0);addressBar.Controls.Add(location);
+        grouping.Click+=delegate{groupSequences=!groupSequences;grouping.Selected=groupSequences;grouping.Invalidate();if(browsingFolder!=null)Browse(browsingFolder);};
         up.Click+=delegate{if(browsingFolder!=null){var p=Directory.GetParent(browsingFolder);if(p!=null)Browse(p.FullName);}};
         refresh.Click+=delegate{if(browsingFolder!=null)Browse(browsingFolder);};
-        folderAddress.KeyDown+=delegate(object s,KeyEventArgs e){if(e.KeyCode==Keys.Enter){Browse(folderAddress.Text);e.SuppressKeyPress=true;}};
-        folders.ImageList=shellIcons.Images;folders.Dock=DockStyle.Fill;folders.BackColor=Color.FromArgb(30,33,38);folders.ForeColor=Color.Gainsboro;folders.BorderStyle=BorderStyle.None;folders.HideSelection=false;folders.ItemHeight=26;folders.ShowLines=false;folders.FullRowSelect=true;
+        folderAddress.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){Browse(folderAddress.Text);e.SuppressKeyPress=true;}};
+        folders.ImageList=shellIcons.Images;folders.Dock=DockStyle.Fill;folders.BackColor=Color.FromArgb(30,33,38);folders.ForeColor=Color.Gainsboro;folders.BorderStyle=BorderStyle.None;folders.HideSelection=false;folders.ItemHeight=32;folders.ShowLines=false;folders.FullRowSelect=true;folders.ShowNodeToolTips=true;
         AddRoot(Ui.T("바탕 화면"),Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
         AddRoot(Ui.T("문서"),Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
         AddRoot(Ui.T("사진"),Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
@@ -50,10 +56,12 @@ partial class Viewer {
         foreach(var drive in DriveInfo.GetDrives()){string label=drive.Name;try{if(drive.IsReady && drive.VolumeLabel.Length>0)label=drive.VolumeLabel+" ("+drive.Name+")";}catch{}pc.Nodes.Add(FolderNode(label,drive.Name));}pc.Expand();
         folders.BeforeExpand+=delegate(object sender,TreeViewCancelEventArgs e){Populate(e.Node);};
         folders.AfterSelect+=delegate(object sender,TreeViewEventArgs e){if(!syncingTree && e.Node.Tag is string)Browse((string)e.Node.Tag);};
-        split.Panel1.Controls.Add(folders);
+        split.Panel1.Padding=new Padding(14,14,10,12);split.Panel1.Controls.Add(folders);
+        split.Panel1.Controls.Add(new Label{Text=ComponentSetup.Say("폴더","FOLDERS"),Dock=DockStyle.Top,Height=34,Font=new Font("Segoe UI",9,FontStyle.Bold)});
         thumbnails.ImageSize=new Size(160,120);thumbnails.ColorDepth=ColorDepth.Depth32Bit;
         using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
         fileList.Dock=DockStyle.Fill;fileList.View=View.LargeIcon;fileList.LargeImageList=thumbnails;fileList.MultiSelect=false;fileList.HideSelection=false;fileList.BackColor=Color.FromArgb(40,43,48);fileList.ForeColor=Color.Gainsboro;fileList.BorderStyle=BorderStyle.None;fileList.ShowItemToolTips=true;
+        fileList.HandleCreated+=delegate{ModernUi.GallerySpacing(fileList);};fileList.FontChanged+=delegate{ModernUi.GallerySpacing(fileList);};
         fileList.ItemActivate+=delegate{OpenSelectedFullscreen();};
         fileList.SelectedIndexChanged+=delegate{UpdateBrowserInfo();};
         split.Panel2.Controls.Add(fileList);browser.Controls.Add(split);browser.Controls.Add(addressBar);Controls.Add(browser);
@@ -62,7 +70,7 @@ partial class Viewer {
         FormClosed+=delegate{folderVersion++;thumbnails.Dispose();shellIcons.Dispose();};
     }
     void AddRoot(string name,string path){if(!String.IsNullOrEmpty(path))folders.Nodes.Add(FolderNode(name,path));}
-    TreeNode FolderNode(string name,string path){int icon=shellIcons.ForPath(path);var node=new TreeNode(name){Tag=path,ImageIndex=icon,SelectedImageIndex=icon};node.Nodes.Add(new TreeNode("…"));return node;}
+    TreeNode FolderNode(string name,string path){int icon=shellIcons.ForPath(path);var node=new TreeNode(name){Tag=path,ToolTipText=path,ImageIndex=icon,SelectedImageIndex=icon};node.Nodes.Add(new TreeNode("…"));return node;}
     void Populate(TreeNode node){
         if(node.Tag==null || node.Nodes.Count!=1 || node.Nodes[0].Tag!=null || node.Nodes[0].Text!="…")return;
         node.Nodes.Clear();
@@ -124,7 +132,7 @@ partial class Viewer {
             }
         }finally{thumbnailWorker.Release();}
     }
-    void UpdateBrowserInfo(){if(full || busy)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 전체화면  ·  ")+name;}
+    void UpdateBrowserInfo(){if(full || busy)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 전체화면  ·  ")+Path.GetFileName(name);info.ToolTipText=name;}
     void SyncExplorer(){
         string dir=Path.GetDirectoryName(album.Current);
         if(!full && !String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
