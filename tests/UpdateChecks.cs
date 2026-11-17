@@ -4,7 +4,7 @@ class UpdateChecks {
  static void Check(bool ok,string text){if(!ok)throw new Exception(text);count++;Console.WriteLine("PASS "+text);}
  static void Reject(Action action,string text){try{action();}catch(InvalidDataException){Check(true,text);return;}throw new Exception(text);}
  static string Fresh(string name){string path=Path.Combine(root,name+"-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(path);return path;}
- static void Put(string path,string text){Directory.CreateDirectory(Path.GetDirectoryName(path));File.WriteAllText(path,text);}
+ static void Put(string path,string text){Directory.CreateDirectory(Path.GetDirectoryName(path));UpdateFiles.Retry(()=>File.WriteAllText(path,text));}
  static UpdateJob Prepare(bool fail){
   string target=Fresh("app with spaces 한글"),work=Fresh("update cache 한글"),payload=Path.Combine(work,"payload-source");Directory.CreateDirectory(payload);
   File.Copy(Path.Combine(fixtures,"old.exe"),Path.Combine(target,"LumaView.exe"));Put(Path.Combine(target,"VERSION"),"1.0.0");Put(Path.Combine(target,"README.md"),"old readme");Put(Path.Combine(target,"user data","keep.txt"),"untouched");
@@ -21,7 +21,7 @@ class UpdateChecks {
   Check(UpdateFiles.Quote("C:\\space here\\")=="\"C:\\space here\\\\\"","quote trailing slash in restart path");
   foreach(string mode in new[]{"traversal","duplicate","symlink"}){
    string work=Fresh(mode),zip=Path.Combine(work,"bad.zip"),dest=Path.Combine(work,"payload");
-   using(var archive=ZipFile.Open(zip,ZipArchiveMode.Create)){
+   using(var archive=UpdateFiles.Retry(()=>ZipFile.Open(zip,ZipArchiveMode.Create))){
     using(var output=new StreamWriter(archive.CreateEntry("first.txt").Open()))output.Write("safe");
     var entry=archive.CreateEntry(mode=="traversal"?"../escaped.txt":mode=="duplicate"?"FIRST.TXT":"link");if(mode=="symlink")entry.ExternalAttributes=unchecked((int)0xa1ff0000);
     using(var output=new StreamWriter(entry.Open()))output.Write("bad");

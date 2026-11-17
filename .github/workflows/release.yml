@@ -33,6 +33,9 @@ jobs:
       - name: Verify portable archive
         shell: pwsh
         run: .\scripts\test-portable.ps1
+      - name: Verify packaged upgrade from 0.2.3
+        shell: pwsh
+        run: .\scripts\test-packaged-update.ps1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: LumaView-Windows

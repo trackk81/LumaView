@@ -7,6 +7,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace LumaView {
@@ -17,6 +18,10 @@ sealed class UpdateJob {
     public int ParentPid{get;set;}public long ParentStarted{get;set;}public UpdateFile[] Files{get;set;}
 }
 static class UpdateFiles {
+    // Antivirus/indexing tools may briefly hold a newly created file. Retry the
+    // same operation without changing permissions; persistent failures still abort.
+    internal static T Retry<T>(Func<T> action){for(int attempt=0;;attempt++){try{return action();}catch(UnauthorizedAccessException){if(attempt>=5)throw;}catch(IOException ex){int code=ex.HResult&65535;if(attempt>=5||(code!=5&&code!=32&&code!=33))throw;}Thread.Sleep(100*(1<<attempt));}}
+    internal static void Retry(Action action){Retry(()=>{action();return true;});}
     internal static string LockName(string root){using(var hash=SHA256.Create())return "Local\\LumaView.Install."+BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(root).TrimEnd('\\').ToUpperInvariant()))).Replace("-","");}
     internal static string Hash(string path){using(var input=File.OpenRead(path))using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(input)).Replace("-","").ToLowerInvariant();}
     internal static string Inside(string root,string relative){
@@ -64,7 +69,7 @@ static class UpdateFiles {
                 string name=entry.FullName.Replace('\\','/').TrimEnd('/');string target=Inside(destination,name);
                 if(entry.FullName.EndsWith("/")||entry.FullName.EndsWith("\\")){Directory.CreateDirectory(target);continue;}
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                using(var input=entry.Open())using(var output=new FileStream(target,FileMode.CreateNew,FileAccess.Write,FileShare.None)){
+                using(var input=entry.Open())using(var output=Retry(()=>new FileStream(target,FileMode.CreateNew,FileAccess.Write,FileShare.None))){
                     byte[] buffer=new byte[65536];int count;long written=0;while((count=input.Read(buffer,0,buffer.Length))>0){written+=count;if(written>entry.Length)throw new InvalidDataException("Archive entry exceeds its declared size.");output.Write(buffer,0,count);}
                 }
                 if(new FileInfo(target).Length!=entry.Length)throw new InvalidDataException("Incomplete update file: "+name);
@@ -106,7 +111,7 @@ static class UpdateFiles {
     internal static void Result(UpdateJob job,string state,string message){File.WriteAllText(Inside(job.WorkRoot,"result.json"),new JavaScriptSerializer().Serialize(new{state=state,message=message,version=job.ToVersion,target=job.TargetRoot}),new UTF8Encoding(false));}
     internal static void Replace(string source,string target){
         NoLinks(target);Directory.CreateDirectory(Path.GetDirectoryName(target));string temporary=target+".update-"+Guid.NewGuid().ToString("N");
-        try{File.Copy(source,temporary,false);if(File.Exists(target))File.Replace(temporary,target,null);else File.Move(temporary,target);}
+        try{Retry(()=>File.Copy(source,temporary,false));if(File.Exists(target))Retry(()=>File.Replace(temporary,target,null));else Retry(()=>File.Move(temporary,target));}
         finally{if(File.Exists(temporary))File.Delete(temporary);}
     }
 }
