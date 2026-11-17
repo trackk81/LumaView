@@ -6,9 +6,9 @@ Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어
 
 Windows 10/11 64비트, .NET Framework 4.8 이상이 필요합니다.
 
-1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.1.1-win-x64.zip`을 받습니다.
+1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.0-win-x64.zip`을 받습니다.
 2. ZIP 파일의 **압축을 모두 풀고** 원하는 폴더에 둡니다.
-3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, DLL 파일도 함께 유지하세요.
+3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, `video-runtime`, DLL 파일도 함께 유지하세요.
 
 JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**에서 확장자를 선택하고 연결을 누르세요. Windows에서 LumaView를 최종 선택해야 하며 기존 UserChoice를 강제로 변경하지 않습니다. 연결한 뒤 프로그램 폴더를 옮겼다면 새 위치에서 다시 연결하세요.
 
@@ -27,9 +27,11 @@ JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**�
 - 왼쪽 폴더 탐색기와 현재 폴더의 이미지/영상 미리보기. 더블클릭하면 전체화면.
 - 이미지 확대·회전·반전, 투명 배경 색/체크 크기, 상세 정보, 슬라이드쇼.
 - 시퀀스를 SQ 항목으로 묶기, 재생 FPS 설정, 실제 프레임 번호 표시, 시간 기준 재생.
-- 영상 재생과 한 프레임 이동. 영상 코덱은 Windows에 설치된 미디어 기능에 따라 달라집니다.
+- 영상은 내장 mpv/FFmpeg 엔진으로 재생합니다. GPU 디코딩 자동 선택과 소프트웨어 디코딩 대체를 사용하며 Windows 코덱 팩은 필요하지 않습니다. 탐색바는 클릭한 시점으로 바로 이동하고 드래그 중 최신 위치를 우선 처리합니다. D/F는 실제 디코더 프레임 단위로 앞뒤 이동하며 가변 FPS 영상도 지원합니다. 역방향 이동은 키프레임 간격에 따라 지연될 수 있습니다. 영상 썸네일은 Windows 셸 기능을 사용합니다.
+- 3D 상단 **렌더링 효과**: 기본 / 사실적 / 툰·외곽선 / 시네마틱·블룸 프리셋. 그림자, 툰, 외곽선, 블룸 개별 선택 및 노출·대비·채도 조절. Three.js/WebGL 실시간 GPU 렌더링이며 Blender Eevee 엔진 자체는 아닙니다. 그림자는 전용 주광원 기준이고 환경 반사는 선택한 HDR 스카이돔을 사용합니다. 설정은 현재 뷰포트에 적용됩니다.
+- **렌더링 효과 → HDR 스카이돔**: Poly Haven 2K HDRI 4종(소프트박스 스튜디오, 콘트라스트 스튜디오, 베니스 노을, 숲속 자연광)을 오프라인으로 제공합니다. 이미지 선택, 0–360° 회전, 조명 밝기, 배경 표시·흐림·밝기를 조절합니다. Shift + 좌우 드래그로 모델을 움직이지 않고 돔을 회전할 수 있습니다. 배경을 숨겨도 조명과 반사는 유지됩니다. 내 Radiance `.hdr` 파일도 불러올 수 있습니다(최대 128MB, 8192×4096; GPU 제한에 따라 더 작을 수 있음). 플랫/툰 재질에서는 HDR 조명 효과가 제한되며 그림자는 별도 주광원 기준입니다.
 - OBJ/MTL, GLB/glTF, STL, FBX의 정적 3D 보기. 플랫 컬러, SSAO, 스카이돔, 포인트 라이트 색/강도/이동.
-- 전체화면 메뉴 자동 숨김, 핀 고정, 오른쪽 위 종료 버튼.
+- 전체화면 메뉴 자동 숨김, 핀 고정, 오른쪽 위 종료 버튼. 메뉴가 있는 상단 영역에 마우스를 올리면 즉시 표시되며 첫 클릭부터 동작합니다. 메뉴 밖으로 이동하면 약 2.2초 뒤 숨겨지고, 펼침 메뉴나 입력란을 사용하는 동안에는 유지됩니다.
 - 복사/붙여넣기/이름 변경, 파일 연결 설정.
 
 이미지: JPG, JPEG, PNG, BMP, GIF, TIFF, ICO, WebP, EXR, PSD/PSB, TGA, HDR, DPX, DDS. GIF/TIFF는 첫 프레임, PSD/PSB는 저장된 합성 이미지입니다. EXR/HDR은 화면용 SDR 미리보기이며 AOV·OCIO·HDR 출력은 지원하지 않습니다. FBX 애니메이션 및 제작 프로그램 전용 셰이더는 지원하지 않습니다.
@@ -47,9 +49,10 @@ JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**�
 
 ## 빌드와 배포
 
-Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니다. 런타임 의존 파일은 저장소에 함께 포함됩니다.
+Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니다. 이미지·3D 런타임은 저장소에 포함되며 영상 엔진은 아래 명령으로 고정된 빌드를 내려받고 SHA-256을 확인합니다.
 
 ```powershell
+.\scripts\fetch-video-runtime.ps1
 .\build.ps1 -OutputDirectory .\dist\app
 .\scripts\test-release.ps1
 .\scripts\package.ps1

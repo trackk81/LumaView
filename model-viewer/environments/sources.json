@@ -1,0 +1,34 @@
+[
+  {
+    "id": "studio_small_09",
+    "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/studio_small_09_2k.hdr",
+    "source": "https://polyhaven.com/a/studio_small_09",
+    "license": "CC0-1.0",
+    "sha256": "36724313c0fc66dab126ff90f081b85a0b1ef47be65eda1417bd20b033f0573f",
+    "bytes": 6312947
+  },
+  {
+    "id": "studio_small_03",
+    "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/studio_small_03_2k.hdr",
+    "source": "https://polyhaven.com/a/studio_small_03",
+    "license": "CC0-1.0",
+    "sha256": "156c2946a6cd0c1d8b662cd97e8a492436331ec2418a33901a324f4420618076",
+    "bytes": 6673807
+  },
+  {
+    "id": "venice_sunset",
+    "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/venice_sunset_2k.hdr",
+    "source": "https://polyhaven.com/a/venice_sunset",
+    "license": "CC0-1.0",
+    "sha256": "cbfac020ee17ab36016ccc7fbe9020b828587b9864af6ecda0a93089914889a6",
+    "bytes": 5723224
+  },
+  {
+    "id": "forest_slope",
+    "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/forest_slope_2k.hdr",
+    "source": "https://polyhaven.com/a/forest_slope",
+    "license": "CC0-1.0",
+    "sha256": "aa76871c301a2ea5977043e48036b53bb3f26eff0d96fa833789a7738569c279",
+    "bytes": 7562873
+  }
+]

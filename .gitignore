@@ -13,3 +13,8 @@ samples/
 .vs/
 !codecs/magick.exe
 !installer/redist/MicrosoftEdgeWebview2Setup.exe
+
+
+
+video-runtime/*
+!video-runtime/SOURCE.json

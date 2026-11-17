@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Drawing;
@@ -127,7 +127,7 @@ class Canvas : Control {
 partial class Viewer : Form {
     readonly Album album=new Album();
     readonly Canvas canvas=new Canvas();
-    readonly ToolStrip toolbar=new ToolStrip();
+    readonly ToolStrip toolbar=new ViewerToolStrip();
     readonly StatusStrip status=new StatusStrip();
     readonly ToolStripStatusLabel info=new ToolStripStatusLabel();
     readonly Timer slide=new Timer();

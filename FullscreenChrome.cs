@@ -3,11 +3,21 @@ using System.Drawing;
 using System.Windows.Forms;
 
 namespace LumaView {
+// .NET Framework ToolStrip normally consumes the click that activates its window.
+// Our toolbar lives in a separate owned window, so this must be allowed through
+// on every return from the image/WebView/video surface, not only on application entry.
+sealed class ViewerToolStrip : ToolStrip {
+    protected override void WndProc(ref Message message){
+        base.WndProc(ref message);
+        const int WM_MOUSEACTIVATE=0x21,MA_ACTIVATEANDEAT=2,MA_ACTIVATE=1;
+        if(message.Msg==WM_MOUSEACTIVATE&&message.Result==(IntPtr)MA_ACTIVATEANDEAT)message.Result=(IntPtr)MA_ACTIVATE;
+    }
+}
 // Owned windows keep controls above the WPF video surface without resizing it.
 sealed class FullscreenChrome : IDisposable {
     sealed class Overlay : Form {
         internal Func<Keys,bool> Shortcut;
-        public Overlay(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.None;BackColor=Color.FromArgb(28,31,37);Opacity=0;}
+        public Overlay(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.None;BackColor=Color.FromArgb(28,31,37);}
         protected override bool ShowWithoutActivation {get{return true;}}
         protected override bool ProcessCmdKey(ref Message msg,Keys key){return (Shortcut!=null&&Shortcut(key))||base.ProcessCmdKey(ref msg,key);}
     }
@@ -52,26 +62,35 @@ sealed class FullscreenChrome : IDisposable {
         bool foreground=owner.Enabled&&(active==owner||active==top||active==bottom);
         if(!foreground||owner.WindowState==FormWindowState.Minimized){top.Hide();bottom.Hide();return;}
         Rectangle area=owner.RectangleToScreen(owner.ClientRectangle);
-        int height=top.Padding.Top;foreach(Control c in top.Controls)if(c.Visible&&c.Dock==DockStyle.Top)height+=c.Height;
+        // Control.Visible also becomes false when its parent is hidden. Keep the
+        // title/toolbar row heights stable while hidden so reveal and hit areas agree.
+        int height=top.Padding.Top;foreach(Control c in top.Controls)if(c.Dock==DockStyle.Top)height+=c.Height;
         height=Math.Max(toolbar.Height,height);
         var topBounds=new Rectangle(area.X,area.Y,area.Width,height);if(top.Bounds!=topBounds)top.Bounds=topBounds;
         var bottomBounds=new Rectangle(area.X,area.Bottom-56,area.Width,56);if(bottom.Bounds!=bottomBounds)bottom.Bounds=bottomBounds;
         Point mouse=Cursor.Position;DateTime now=DateTime.UtcNow;
         bool inOwner=area.Contains(mouse);
-        bool overTop=inOwner&&(mouse.Y<area.Top+22||(top.Visible&&top.Bounds.Contains(mouse)));
-        bool overBottom=inOwner&&(mouse.Y>=area.Bottom-22||(bottom.Visible&&bottom.Bounds.Contains(mouse)));
+        // Reveal over the actual controls, rather than a hard-to-find 22px strip.
+        // A small margin keeps the bar stable at its lower/upper edge.
+        bool overTop=inOwner&&mouse.Y<topBounds.Bottom+(top.Visible?12:0);
+        bool overBottom=inOwner&&mouse.Y>=bottomBounds.Top-(bottom.Visible?12:0);
         bool interacting=Control.MouseButtons!=MouseButtons.None||DropDownOpen();
-        if(overTop||(top.ContainsFocus&&interacting))topUntil=now.AddSeconds(1.5);
-        if(overBottom||(bottom.ContainsFocus&&interacting))bottomUntil=now.AddSeconds(1.5);
-        Fade(top,pin.Checked||now<topUntil||DropDownOpen());
-        if(footer!=null)Fade(bottom,pin.Checked||now<bottomUntil);
+        if(overTop||(top.ContainsFocus&&interacting)||EditorFocused(top))topUntil=now.AddSeconds(2.2);
+        if(overBottom||(bottom.ContainsFocus&&interacting)||EditorFocused(bottom))bottomUntil=now.AddSeconds(2.2);
+        ShowBar(top,pin.Checked||now<topUntil||DropDownOpen());
+        if(footer!=null)ShowBar(bottom,pin.Checked||now<bottomUntil);
     }
     bool DropDownOpen(){foreach(ToolStripItem item in toolbar.Items){var drop=item as ToolStripDropDownItem;if(drop!=null&&drop.DropDown.Visible)return true;var combo=item as ToolStripComboBox;if(combo!=null&&combo.DroppedDown)return true;}return toolbar.OverflowButton.DropDown.Visible;}
-    void Fade(Overlay bar,bool show){
-        if(show&&!bar.Visible){bar.Opacity=0;bar.Show(owner);}
-        if(!bar.Visible)return;
-        double opacity=Math.Max(0,Math.Min(.96,bar.Opacity+(show?.16:-.16)));if(Math.Abs(bar.Opacity-opacity)>.001)bar.Opacity=opacity;
-        if(!show&&bar.Opacity<=0){bool focused=bar.ContainsFocus;bar.Hide();if(focused)owner.Activate();}
+    static bool EditorFocused(Control root){
+        if(!root.ContainsFocus)return false;
+        if(root is TextBoxBase||root is UpDownBase||root is ComboBox||root is TrackBar)return true;
+        foreach(Control child in root.Controls)if(EditorFocused(child))return true;
+        return false;
+    }
+    void ShowBar(Overlay bar,bool show){
+        // No transparent, still-clickable transition window between hidden/shown.
+        if(show){if(!bar.Visible)bar.Show(owner);return;}
+        if(bar.Visible){bool focused=bar.ContainsFocus;bar.Hide();if(focused)owner.Activate();}
     }
     static Bitmap DrawIcon(bool active,bool cross){
         int size=cross?24:32;var image=new Bitmap(size,size);using(var g=Graphics.FromImage(image)){

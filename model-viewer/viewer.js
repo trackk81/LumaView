@@ -1,7 +1,8 @@
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 
 
-import {SSAOPass} from 'three/addons/postprocessing/SSAOPass.js';
+import {createEffects} from './effects.js';
+import {createEnvironment} from './environment.js';
 
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -21,8 +22,9 @@ const failed=new Set();
 let flat=false,lightMode=false,detailsVisible=false;
 const flatMaps=new Map(),flatColors=new Map(),userLights=[];
 const raycaster=new THREE.Raycaster();
-let overlayScene,transform,ssaoPass,ssao=false,selectedLight=-1,aoStrength=1;
-let skyDome=false,skyStrength=1,skyEnvironment,skyReflectionTexture,studioEnvironment,ambient,keyLight;
+let effects,environment;
+let overlayScene,transform,ssao=false,selectedLight=-1,aoStrength=1;
+let skyDome=false,skyStrength=1,skyReflectionTexture,studioEnvironment,ambient,keyLight;
 const skyMaterials=new Map(),skyReflectionStrength={value:1};
 function error(e){message.textContent=String(e?.message||e);post('error:'+message.textContent);}
 window.addEventListener('error',e=>error(e.error||e.message));
@@ -41,19 +43,11 @@ function updateCameraDepth(){
 }
 function renderScene(){
  updateCameraDepth();
- renderer.render(scene,camera);
- if(ssao&&!flat&&ready&&aoStrength>0){
-  if(!ssaoPass){ssaoPass=new SSAOPass(scene,camera,innerWidth,innerHeight,24);ssaoPass.renderToScreen=true;
-   ssaoPass.copyMaterial.uniforms.aoStrength={value:1};
-   ssaoPass.copyMaterial.fragmentShader=ssaoPass.copyMaterial.fragmentShader.replace("uniform float opacity;","uniform float opacity; uniform float aoStrength;").replace("gl_FragColor = opacity * texel;","gl_FragColor = vec4(mix(vec3(1.0),texel.rgb,aoStrength),1.0);");resizeEffects();}
-  ssaoPass.copyMaterial.uniforms.aoStrength.value=aoStrength;ssaoPass.kernelRadius=radius*.18;ssaoPass.minDistance=radius*.002/(camera.far-camera.near);ssaoPass.maxDistance=radius*.6/(camera.far-camera.near);
-  const u=ssaoPass.ssaoMaterial.uniforms;u.cameraNear.value=camera.near;u.cameraFar.value=camera.far;u.cameraProjectionMatrix.value.copy(camera.projectionMatrix);u.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
-  ssaoPass.render(renderer,null,null);
- }
+ effects.render(ssao,flat,aoStrength);
  renderer.setRenderTarget(null);const autoClear=renderer.autoClear;renderer.autoClear=false;renderer.clearDepth();const near=camera.near,far=camera.far;camera.near=Math.min(near,radius*.0001);camera.far=Math.max(far,camera.position.length()+radius+Math.max(0,...userLights.filter(x=>x.active).map(x=>x.light.position.length())));camera.updateProjectionMatrix();
  renderer.render(overlayScene,camera);camera.near=near;camera.far=far;camera.updateProjectionMatrix();renderer.autoClear=autoClear;
 }
-function resizeEffects(){if(ssaoPass){ssaoPass.setSize(Math.max(1,Math.ceil(innerWidth)),Math.max(1,Math.ceil(innerHeight)));}}
+function resizeEffects(){effects?.resize();}
 function draw(){if(!drawPending){drawPending=true;requestAnimationFrame(render);}}
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);resizeEffects();draw();}
 function fit(axis='iso'){
@@ -89,32 +83,34 @@ function skyMaterial(source){
   }
   skyMaterials.set(source,material);
  }
+ if(source.isMeshPhongMaterial){if(material.envMap!==skyReflectionTexture){material.envMap=skyReflectionTexture;material.needsUpdate=true;}material.envMapRotation.copy(scene.environmentRotation);}
  return material;
 }
 function applySky(){
  if(!ambient)return;
- if(skyDome&&!skyEnvironment){
-  const canvas=document.createElement('canvas');canvas.width=128;canvas.height=64;const context=canvas.getContext('2d');
-  const gradient=context.createLinearGradient(0,0,0,64);gradient.addColorStop(0,'#edf5ff');gradient.addColorStop(.5,'#e9eef5');gradient.addColorStop(1,'#b9c5d3');context.fillStyle=gradient;context.fillRect(0,0,128,64);
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.mapping=THREE.EquirectangularReflectionMapping;
-  skyReflectionTexture=texture;
-  const generator=new THREE.PMREMGenerator(renderer);skyEnvironment=generator.fromEquirectangular(texture);generator.dispose();
- }
- scene.environment=skyDome?skyEnvironment.texture:studioEnvironment.texture;
- scene.environmentIntensity=skyDome?skyStrength:1;
+ environment.configure({enabled:skyDome,intensity:skyStrength});
+ const active=environment.apply(studioEnvironment.texture);skyReflectionTexture=environment.texture;
  skyReflectionStrength.value=skyStrength;
- ambient.intensity=skyDome?2*skyStrength:2;
- ambient.color.set(skyDome?0xedf5ff:0xffffff);ambient.groundColor.set(skyDome?0xb9c5d3:0x505768);
- keyLight.visible=!skyDome;if(model)materials();else draw();
+ ambient.intensity=active ? .25*skyStrength : (effects?.settings.shadows ? .6 : 2);
+ ambient.color.set(0xffffff);ambient.groundColor.set(0x505768);
+ keyLight.visible=!active&&!effects?.settings.shadows;if(model)materials();else draw();
 }
+window.setEnvironment=value=>environment.set(value);
+window.selectEnvironment=id=>environment.select(id);
+window.importEnvironment=file=>environment.importFile(file);
+
 window.setSkyStrength=value=>{if(!Number.isFinite(value))return;skyStrength=Math.max(0,Math.min(10,value));applySky();};
 function materials(){
  model.traverse(o=>{if(!o.isMesh)return;const source=originals.get(o);const list=Array.isArray(source)?source:[source];
- const next=list.map(m=>{if(flat){const cache=textures?flatMaps:flatColors;let p=cache.get(m);if(!p){p=new THREE.MeshBasicMaterial({color:m.color?.clone()||new THREE.Color(0xb4bdc9),map:textures?m.map:null,vertexColors:m.vertexColors,alphaMap:m.alphaMap,opacity:m.opacity,transparent:m.transparent,alphaTest:m.alphaTest,side:m.side,depthWrite:m.depthWrite,toneMapped:false});cache.set(m,p);}p.wireframe=wire;return p;}if(textures){const p=skyDome?skyMaterial(m):m;p.wireframe=wire;return p;}let p=plain.get(m);if(!p){p=new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,metalness:0,side:m.side});plain.set(m,p);}p.wireframe=wire;return p;});o.material=Array.isArray(source)?next:next[0];});draw();
+ const next=list.map(m=>{if(flat){const cache=textures?flatMaps:flatColors;let p=cache.get(m);if(!p){p=new THREE.MeshBasicMaterial({color:m.color?.clone()||new THREE.Color(0xb4bdc9),map:textures?m.map:null,vertexColors:m.vertexColors,alphaMap:m.alphaMap,opacity:m.opacity,transparent:m.transparent,alphaTest:m.alphaTest,side:m.side,depthWrite:m.depthWrite,toneMapped:false});cache.set(m,p);}p.wireframe=wire;return p;}if(effects?.settings.toon){const p=effects.material(m,textures);p.wireframe=wire;return p;}if(textures){const p=skyDome&&environment.texture?skyMaterial(m):m;p.wireframe=wire;return p;}let p=plain.get(m);if(!p){p=new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,metalness:0,side:m.side});plain.set(m,p);}p.wireframe=wire;return p;});o.material=Array.isArray(source)?next:next[0];});draw();
 }
 function capture(){
  renderScene();const c=document.createElement('canvas');c.width=180;c.height=120;const g=c.getContext('2d');g.fillStyle='#202328';g.fillRect(0,0,180,120);const ratio=Math.min(180/renderer.domElement.width,120/renderer.domElement.height);const w=renderer.domElement.width*ratio,h=renderer.domElement.height*ratio;g.drawImage(renderer.domElement,(180-w)/2,(120-h)/2,w,h);post('thumbnail:'+c.toDataURL('image/png').split(',')[1]);
 }
+window.setRenderBase=value=>{ssao=value.ssao;skyDome=value.sky;flat=value.flat;applySky();post('renderBase:'+JSON.stringify({ssao,sky:skyDome,flat}));};
+window.setRenderEffects=value=>effects.apply(value);
+window.setRenderPreset=name=>effects.preset(name);
+window.toggleRenderEffects=en=>effects.toggle(en);
 window.modelCommand=action=>{
  if(!ready)return;
  if(['iso','front','side','top'].includes(action))fit(action);
@@ -129,8 +125,8 @@ window.modelCommand=action=>{
  if(action==='textures'){textures=!textures;materials();}
  if(action==='grid'){grid.visible=!grid.visible;axes.visible=grid.visible;draw();}
 };
-window.modelState=()=>({ready,wire,textures,flat,ssao,ssaoActive:ssao&&!flat&&aoStrength>0,aoStrength,clipNear:camera?.near,clipFar:camera?.far,skyDome,skyStrength,studioDirectionalVisible:keyLight?.visible,selectedLight,gizmoVisible:!!transform?.object,gizmoAxis:transform?.axis,dragging:transform?.dragging,lightMode,detailsVisible,lights:userLights.filter(x=>x.active).map(x=>({id:x.id,color:"#"+x.light.color.getHexString(),strength:x.strength,position:x.light.position.toArray(),screen:x.handle.position.clone().project(camera).toArray()})),grid:grid?.visible,meshes:window.modelStats?.meshes,triangles:window.modelStats?.triangles,camera:camera?.position.toArray(),target:controls?.target.toArray()});
-window.addEventListener('keydown',e=>{if(e.key==='Escape'||e.key==='F11'){e.preventDefault();if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(e.key.toLowerCase()==='f')fit();else if(e.key.toLowerCase()==='l'&&!e.repeat){e.preventDefault();setLightMode(!lightMode);}else if(e.key.toLowerCase()==='i'&&!e.repeat)post('toggleDetails');});
+window.modelState=()=>({environment:environment?.state(),effects:{...effects?.settings},ready,wire,textures,flat,ssao,ssaoActive:ssao&&!flat&&aoStrength>0,aoStrength,clipNear:camera?.near,clipFar:camera?.far,skyDome,skyStrength,studioDirectionalVisible:keyLight?.visible,selectedLight,gizmoVisible:!!transform?.object,gizmoAxis:transform?.axis,dragging:transform?.dragging,lightMode,detailsVisible,lights:userLights.filter(x=>x.active).map(x=>({id:x.id,color:"#"+x.light.color.getHexString(),strength:x.strength,position:x.light.position.toArray(),screen:x.handle.position.clone().project(camera).toArray()})),grid:grid?.visible,meshes:window.modelStats?.meshes,triangles:window.modelStats?.triangles,camera:camera?.position.toArray(),target:controls?.target.toArray()});
+window.addEventListener('keydown',e=>{if(e.target.closest?.('#effects'))return;if(e.key==='Escape'||e.key==='F11'){e.preventDefault();if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(e.key.toLowerCase()==='f')fit();else if(e.key.toLowerCase()==='l'&&!e.repeat){e.preventDefault();setLightMode(!lightMode);}else if(e.key.toLowerCase()==='i'&&!e.repeat)post('toggleDetails');});
 window.addEventListener('resize',resize);
 function setLightMode(enabled){
  if(!ready)return;if(enabled)selectLight(-1);lightMode=enabled;renderer.domElement.style.cursor=enabled?'crosshair':'';post('lightMode:'+(enabled?'on':'off'));
@@ -190,12 +186,15 @@ manager.onError=url=>failed.add(url);
 manager.onLoad=()=>{if(ready){draw();setTimeout(capture,100);}};
 try{
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x202328);renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.appendChild(renderer.domElement);
- scene=new THREE.Scene();overlayScene=new THREE.Scene();camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.01,10000);
+ scene=new THREE.Scene();scene.background=new THREE.Color(0x202328);overlayScene=new THREE.Scene();camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.01,10000);
+ environment=createEnvironment(renderer,scene,()=>{skyDome=environment.settings.enabled;skyStrength=environment.settings.intensity;applySky();},value=>{controls.enabled=!value&&!transform?.dragging;});
  transform=new TransformControls(camera,renderer.domElement);transform.setMode('translate');transform.setSpace('world');transform.setSize(.85);transform.enabled=false;overlayScene.add(transform.getHelper());
  transform.addEventListener('dragging-changed',e=>{controls.enabled=!e.value;});
  transform.addEventListener('objectChange',()=>{const item=userLights[selectedLight];if(item?.active)item.handle.position.copy(item.light.position);draw();});transform.addEventListener('change',draw);
  controls=new OrbitControls(camera,renderer.domElement);controls.addEventListener('change',draw);controls.enableDamping=false;setupLightPicking();
  const pmrem=new THREE.PMREMGenerator(renderer);const room=new RoomEnvironment();studioEnvironment=pmrem.fromScene(room);scene.environment=studioEnvironment.texture;room.dispose();pmrem.dispose();ambient=new THREE.HemisphereLight(0xffffff,0x505768,2);scene.add(ambient);keyLight=new THREE.DirectionalLight(0xffffff,2.5);keyLight.position.set(4,8,5);scene.add(keyLight);
+ effects=createEffects(renderer,scene,camera,()=>{if(model)applySky();else draw();},environment);
+ window.addEventListener('pagehide',()=>{effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
  window.loadModel=async(url,extension)=>{
   try{
    if(model)throw new Error('Open a new viewer to load another model.');
@@ -221,6 +220,7 @@ try{
    if(!Number.isFinite(radius)||radius<=0)throw new Error('Model bounds are empty or invalid.');
    const wrapper=new THREE.Group();wrapper.add(model);wrapper.position.copy(center).negate();scene.add(wrapper);
    grid=new THREE.GridHelper(radius*3,20,0x697586,0x38414b);grid.position.y=-size.y/2-radius*.002;scene.add(grid);axes=new THREE.AxesHelper(radius*.6);axes.position.y=grid.position.y+.001*radius;scene.add(axes);
+   scene.updateMatrixWorld(true);effects.attach(model,radius);
    ready=true;window.modelStats={meshes,triangles,materials:mats.size,size:size.toArray()};fit();message.textContent=failed.size?'Some local material/texture files could not be loaded.':'';
    post('loaded:'+JSON.stringify(window.modelStats));setTimeout(capture,200);
   }catch(e){error(e);}

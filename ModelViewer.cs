@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Drawing;
@@ -56,7 +56,7 @@ partial class Viewer {
 }
 sealed class ModelViewer:Form {
     readonly WebView2 web=new WebView2{Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(32,35,40)};
-    readonly ToolStrip tools=new ToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
+    readonly ToolStrip tools=new ViewerToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
     readonly Label status=new Label{Dock=DockStyle.Fill,ForeColor=Color.White,TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(12,4,12,4)};
     readonly Label title=new Label{Height=30,ForeColor=Color.White,Padding=new Padding(12,5,0,0)};
     readonly FullscreenChrome chrome;
@@ -64,14 +64,14 @@ sealed class ModelViewer:Form {
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     bool ready,closing,lightMode,editingLight;
     ToolStripButton detailsButton,lightButton,lightSettingsButton;
-    bool lightSelected;
-    readonly NumericUpDown skyIntensity=new NumericUpDown{Minimum=0,Maximum=10,Increment=.1m,DecimalPlaces=1,Value=1,Width=62};
+    bool lightSelected,effectsPanelOpen;
+    readonly System.Collections.Generic.Dictionary<string,ToolStripButton> visualButtons=new System.Collections.Generic.Dictionary<string,ToolStripButton>();
     string statistics="";
     public ModelViewer(string file,Rectangle bounds){
         path=Path.GetFullPath(file);Text=Path.GetFileName(path)+" — LumaView 3D";BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),delegate{Close();});Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
-        Toggle(Ui.T("와이어프레임"),"wire",false);Toggle(Ui.T("텍스처"),"textures",true);Toggle(Ui.T("그리드"),"grid",true);Toggle(Ui.T("플랫 컬러"),"flat",false);Toggle("SSAO","ssao",false);Toggle(Ui.T("스카이돔"),"sky",false);
-        tools.Items.Add(new ToolStripLabel(Ui.T("돔 밝기")));skyIntensity.AccessibleName=Ui.T("돔 밝기");skyIntensity.Enabled=false;skyIntensity.ValueChanged+=delegate{SetSkyIntensity();};tools.Items.Add(new ToolStripControlHost(skyIntensity));
+        var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
+        Toggle(Ui.T("와이어프레임"),"wire",false);Toggle(Ui.T("텍스처"),"textures",true);Toggle(Ui.T("그리드"),"grid",true);Toggle(Ui.T("플랫 컬러"),"flat",false);Toggle("SSAO","ssao",false);
         lightButton=Add(Ui.T("라이트 추가 (L)"),delegate{Command("light");});lightButton.Enabled=false;lightButton.Tag="model";
         lightSettingsButton=Add(Ui.T("라이트 설정"),delegate{Command("editLight");});lightSettingsButton.Enabled=false;
         detailsButton=Add(Ui.T("상세 정보"),delegate{});detailsButton.CheckOnClick=true;detailsButton.Enabled=false;detailsButton.Tag="model";detailsButton.CheckedChanged+=delegate{UpdateDetailsOverlay();};
@@ -82,11 +82,11 @@ sealed class ModelViewer:Form {
         FormClosed+=delegate{closing=true;chrome.Dispose();web.Dispose();};
     }
     ToolStripButton Add(string label,Action action){var button=new ToolStripButton(label){Padding=new Padding(4,3,4,3)};button.Click+=delegate{action();};tools.Items.Add(button);return button;}
-    void Toggle(string label,string command,bool initial){var b=Add(label,delegate{Command(command);});b.CheckOnClick=true;b.Checked=initial;b.Enabled=false;b.Tag="model";if(command=="ssao")b.ToolTipText=Ui.T("접촉부 음영을 표시합니다. 플랫 컬러에서는 적용하지 않습니다.");}
+    void Toggle(string label,string command,bool initial){var b=Add(label,delegate{Command(command);});b.CheckOnClick=true;b.Checked=initial;b.Enabled=false;b.Tag="model";visualButtons[command]=b;if(command=="ssao")b.ToolTipText=Ui.T("접촉부 음영을 표시합니다. 플랫 컬러에서는 적용하지 않습니다.");}
     async void Command(string action){if(!ready||closing)return;try{await web.CoreWebView2.ExecuteScriptAsync("window.modelCommand("+json.Serialize(action)+")");web.Focus();}catch(Exception ex){if(!closing)status.Text=ex.Message;}}
-    async void SetSkyIntensity(){
+    async void ToggleRenderEffects(){
         if(!ready||closing)return;
-        try{await web.CoreWebView2.ExecuteScriptAsync("window.setSkyStrength("+skyIntensity.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)+")");}catch(Exception ex){if(!closing)status.Text=ex.Message;}
+        try{await web.CoreWebView2.ExecuteScriptAsync("window.toggleRenderEffects("+(Ui.Language=="en"?"true":"false")+")");web.Focus();}catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
     async void UpdateDetailsOverlay(){
         if(!ready||closing)return;
@@ -141,11 +141,13 @@ sealed class ModelViewer:Form {
                 await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+")");
             }else if(message=="exit"){Close();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}
+            else if(message.StartsWith("renderPanel:")){effectsPanelOpen=message.EndsWith(":on");}
+            else if(message.StartsWith("renderBase:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(11));foreach(var name in new[]{"ssao","flat"})visualButtons[name].Checked=Convert.ToBoolean(data[name]);}
             else if(message.StartsWith("lightMode:")){lightMode=message.EndsWith(":on");lightButton.Checked=lightMode;status.Text=lightMode?Ui.T("빈 공간을 클릭해 라이트를 배치하세요. Esc: 취소"):Ui.T("라이트 클릭: 선택·이동 · 더블클릭: 색상·강도 · L: 추가");}
             else if(message.StartsWith("lightSelected:")){lightSelected=message!="lightSelected:-1";lightSettingsButton.Enabled=lightSelected;if(lightSelected)status.Text=Ui.T("축 드래그: 라이트 이동 · 더블클릭/라이트 설정: 색상·강도 · Esc: 선택 해제");}
             else if(message.StartsWith("editLight:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(10));int id=Convert.ToInt32(data["id"]);string color=(string)data["color"];decimal strength=Convert.ToDecimal(data["strength"]);BeginInvoke((Action)delegate{EditLight(id,color,strength);});}
             else if(message.StartsWith("loaded:")){
-                ready=true;skyIntensity.Enabled=true;var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(7));
+                ready=true;var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(7));
                 var dimensions=(System.Collections.IEnumerable)data["size"];var values=new System.Collections.Generic.List<string>();foreach(var value in dimensions)values.Add(Convert.ToDouble(value).ToString("0.###"));
                 statistics=Ui.T("메시: ")+data["meshes"]+Ui.T(" · 삼각형: ")+Convert.ToInt64(data["triangles"]).ToString("N0")+Ui.T(" · 재질: ")+data["materials"]+"\n"+Ui.T("크기 (모델 단위): ")+String.Join(" × ",values);
                 status.Text=Ui.T("좌클릭 드래그: 회전 · 우클릭 드래그: 이동 · 휠: 확대/축소 · F: 화면 맞춤");
@@ -157,7 +159,7 @@ sealed class ModelViewer:Form {
             }
         }catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(skyIntensity.ContainsFocus&&key!=Keys.Escape&&key!=Keys.F11){if(key==Keys.Enter){web.Focus();return true;}return base.ProcessCmdKey(ref msg,key);}if(key==Keys.Escape||key==Keys.F11){if(lightMode)Command("cancelLight");else if(lightSelected)Command("clearSelection");else Close();return true;}if(key==Keys.L){Command("light");return true;}if(key==Keys.I){detailsButton.PerformClick();return true;}if(key==Keys.F){Command("iso");return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(effectsPanelOpen&&web.ContainsFocus){if(key==Keys.Escape){ToggleRenderEffects();return true;}if(key!=Keys.F11)return base.ProcessCmdKey(ref msg,key);}if(key==Keys.Escape||key==Keys.F11){if(lightMode)Command("cancelLight");else if(lightSelected)Command("clearSelection");else Close();return true;}if(key==Keys.L){Command("light");return true;}if(key==Keys.I){detailsButton.PerformClick();return true;}if(key==Keys.F){Command("iso");return true;}return base.ProcessCmdKey(ref msg,key);}
 }
 sealed class ModelLightEditor:Form {
     readonly Button colorButton=new Button{Location=new Point(120,20),Size=new Size(220,34)};

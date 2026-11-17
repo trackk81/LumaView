@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = $PSScriptRoot, [ValidateSet('winexe','exe')][string]$Target = 'winexe')
+﻿param([string]$OutputDirectory = $PSScriptRoot, [ValidateSet('winexe','exe')][string]$Target = 'winexe')
 $ErrorActionPreference = 'Stop'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
@@ -20,7 +20,7 @@ foreach ($name in @('WindowsBase','PresentationCore','PresentationFramework','Wi
 }
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.Core.dll'
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.WinForms.dll'
-$names = @('LumaView','ExtendedDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','FullscreenChrome','FileCommands','SequenceViewer','AppSettings','FileAssociations','ModelViewer','AppUpdater')
+$names = @('LumaView','ExtendedDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','AppSettings','FileAssociations','ModelViewer','AppUpdater')
 $arguments = @('/nologo',"/target:$Target",'/platform:x64','/optimize+',"/out:$outputRoot\LumaView.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico")
 $arguments += $references | ForEach-Object { "/reference:$_" }
 $arguments += $names | ForEach-Object { Join-Path $PSScriptRoot "$_.cs" }

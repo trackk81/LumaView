@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Destination)
+﻿param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Destination)
 $ErrorActionPreference='Stop'
 $sourceRoot = [IO.Path]::GetFullPath($Source).TrimEnd('\')
 $destinationRoot = [IO.Path]::GetFullPath($Destination)
@@ -17,12 +17,16 @@ function Copy-Module([string]$relative) {
         $name=$match.Groups[1].Value
         if ($name -eq 'three') { Copy-Module 'vendor\build\three.module.js' }
         elseif ($name.StartsWith('three/addons/')) { Copy-Module ('vendor\addons\'+$name.Substring(13)) }
-        elseif ($name.StartsWith('.')) { Copy-Module (Join-Path (Split-Path $relative -Parent) $name) }
+        elseif ($name.StartsWith('.')) {
+            $parent = Split-Path $relative -Parent
+            if ([string]::IsNullOrEmpty($parent)) { Copy-Module $name }
+            else { Copy-Module (Join-Path $parent $name) }
+        }
     }
 }
 Copy-Module 'viewer.js'
 foreach ($name in @('index.html','THREE-LICENSE.txt','WEBVIEW2-LICENSE.txt','WEBVIEW2-NOTICE.txt')) { Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $destinationRoot }
-foreach ($name in @('vendor\addons\libs\basis','vendor\addons\libs\draco\gltf')) {
+foreach ($name in @('environments','vendor\addons\libs\basis','vendor\addons\libs\draco\gltf')) {
     $target=Join-Path $destinationRoot $name
     New-Item -ItemType Directory -Force -Path $target | Out-Null
     Get-ChildItem -LiteralPath (Join-Path $sourceRoot $name) -File | Copy-Item -Destination $target

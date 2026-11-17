@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Drawing;
@@ -33,7 +33,7 @@ static class Sequences {
 sealed class SequenceViewer : Form {
     readonly string[] frames;
     readonly Canvas view=new Canvas();
-    readonly ToolStrip tools=new ToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
+    readonly ToolStrip tools=new ViewerToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
     readonly TrackBar seek=new TrackBar{Dock=DockStyle.Fill,Minimum=0,TickStyle=TickStyle.None};
     readonly Label status=new Label{Dock=DockStyle.Right,Width=470,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Color.White};
     readonly Timer timer=new Timer{Interval=1};
