@@ -1,4 +1,4 @@
-param([string]$InnoCompiler, [switch]$SkipInstaller)
+param([string]$InnoCompiler, [switch]$IncludeInstaller)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $version = (Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
@@ -13,7 +13,7 @@ foreach ($name in @('assets','codecs','licenses')) { Copy-Item -LiteralPath (Joi
 & (Join-Path $PSScriptRoot 'copy-model-runtime.ps1') -Source (Join-Path $root 'model-viewer') -Destination (Join-Path $payload 'model-viewer')
 $portable = Join-Path $dist "LumaView-$version-win-x64.zip"
 Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $portable -Force
-if (!$SkipInstaller) {
+if ($IncludeInstaller) {
     if (!$InnoCompiler) {
         $candidates = @((Join-Path $root 'dependencies\inno\ISCC.exe'), "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 7\ISCC.exe")
         $InnoCompiler = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
@@ -26,7 +26,7 @@ if (!$SkipInstaller) {
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
 }
 $releaseFiles = @($portable)
-if (!$SkipInstaller) { $releaseFiles += Join-Path $dist "LumaView-Setup-$version-x64.exe" }
+if ($IncludeInstaller) { $releaseFiles += Join-Path $dist "LumaView-Setup-$version-x64.exe" }
 $releaseFiles | ForEach-Object { $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256; $hash.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_) } | Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ASCII
 $payload | Set-Content -LiteralPath (Join-Path $dist 'latest-payload.txt') -Encoding UTF8
 Write-Output "Release files: $dist"

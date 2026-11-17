@@ -28,15 +28,15 @@ static void Associations(){
  }
  Registry.CurrentUser.DeleteSubKeyTree(root,false);
 }
-static string Release(string version,string repository="trackk81/LumaView",bool prerelease=false){string tag="v"+version,exe="LumaView-Setup-"+version+"-x64.exe";return new JavaScriptSerializer().Serialize(new {tag_name=tag,draft=false,prerelease=prerelease,assets=new[]{new{name=exe,browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/"+exe,size=12345},new{name="SHA256SUMS.txt",browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/SHA256SUMS.txt",size=100}}});}
+static string Release(string version,string repository="trackk81/LumaView",bool prerelease=false){string tag="v"+version,exe="LumaView-"+version+"-win-x64.zip";return new JavaScriptSerializer().Serialize(new {tag_name=tag,draft=false,prerelease=prerelease,assets=new[]{new{name=exe,browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/"+exe,size=12345},new{name="SHA256SUMS.txt",browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/SHA256SUMS.txt",size=100}}});}
 static void Updater(){
- Check(Call("AppUpdater","ParseRelease",Release("0.2.0"))!=null,"parse valid GitHub installer release");
+ Check(Call("AppUpdater","ParseRelease",Release("0.2.0"))!=null,"parse valid GitHub ZIP release");
  Check(Call("AppUpdater","ParseRelease",Release("0.2.0","trackk81/LumaView",true))==null,"exclude prerelease updates");
- Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0","other/OtherApp")),"reject installer URL from another repository");
+ Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0","other/OtherApp")),"reject ZIP URL from another repository");
  Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0").Replace("SHA256SUMS.txt","absent.txt")),"reject release missing checksums");
- string hash=new string('a',64);Check((string)Call("AppUpdater","ExpectedHash",hash+"  setup.exe\n","setup.exe")==hash,"read exact installer checksum");
- Reject(()=>Call("AppUpdater","ExpectedHash",hash+"  setup.exe\n"+hash+"  setup.exe","setup.exe"),"reject duplicate checksums");
- string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified installer bytes");}finally{File.Delete(temp);}
+ string hash=new string('a',64);Check((string)Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n","portable.zip")==hash,"read exact ZIP checksum");
+ Reject(()=>Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n"+hash+"  portable.zip","portable.zip"),"reject duplicate checksums");
+ string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified ZIP bytes");}finally{File.Delete(temp);}
 }
 static IEnumerable<Control> Walk(Control root){foreach(Control child in root.Controls){yield return child;foreach(var nested in Walk(child))yield return nested;}}
 static void Layout(){
@@ -52,3 +52,4 @@ static void Layout(){
 }
 [STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"LumaView.exe"));Application.EnableVisualStyles();Associations();Updater();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater validation and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
 }
+

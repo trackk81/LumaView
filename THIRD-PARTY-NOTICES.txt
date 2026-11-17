@@ -12,8 +12,8 @@ License: licenses/THREE-LICENSE.txt
 Microsoft.Web.WebView2 SDK 1.0.4314.35
 https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35
 License/notices: licenses/WEBVIEW2-LICENSE.txt, licenses/WEBVIEW2-NOTICE.txt
-The official Microsoft-signed Evergreen bootstrapper is bundled with setup.
-It installs Microsoft's shared WebView2 Runtime only when it is missing.
+The optional installer source includes Microsoft's signed Evergreen bootstrapper.
+The portable ZIP does not install or include the shared WebView2 Runtime.
 
 three.js r180 decoder dependencies (bundled unchanged):
 - Draco glTF decoder (Apache 2.0): licenses/draco-LICENSE.txt
@@ -29,6 +29,6 @@ three.js r180 decoder dependencies (bundled unchanged):
 - zstddec (MIT/BSD notices): licenses/zstddec-LICENSE.txt
   https://github.com/donmccurdy/zstddec
 
-Setup is compiled with Inno Setup. The compiler is a build tool and is not
-included in the application payload. https://jrsoftware.org/inno-setup
+The optional setup is compiled with Inno Setup. ZIP releases do not require the
+compiler, and it is not included in the application. https://jrsoftware.org/inno-setup
 No Honeyview binary, codec, or decompiled program code is shipped.

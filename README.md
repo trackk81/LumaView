@@ -2,25 +2,25 @@
 
 Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어두운/밝은/사용자 색상 테마를 지원합니다.
 
-## 설치
+## ZIP으로 실행
 
 Windows 10/11 64비트, .NET Framework 4.8 이상이 필요합니다.
 
-1. Releases에서 `LumaView-Setup-0.1.0-x64.exe`를 실행합니다.
-2. 설치 위치와 연결할 확장자를 선택합니다. 기본 위치는 `%LOCALAPPDATA%\Programs\LumaView`입니다.
-3. 완료 화면의 **선택한 확장자의 기본 앱 설정 열기**를 누르고 Windows에서 LumaView를 선택합니다.
+1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.1.1-win-x64.zip`을 받습니다.
+2. ZIP 파일의 **압축을 모두 풀고** 원하는 폴더에 둡니다.
+3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, DLL 파일도 함께 유지하세요.
 
-설치 시 지원 형식을 ‘연결 프로그램’에 자동 등록합니다. Windows 10/11의 기본 앱 변경은 사용자 확인이 필요하며, 기존 UserChoice를 강제로 변경하지 않습니다. 최신 Windows 11에서는 선택한 형식의 설정 화면으로 바로 이동합니다. 구형 Windows에서는 기본 앱 화면의 LumaView 항목에서 선택하세요.
+JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**에서 확장자를 선택하고 연결을 누르세요. Windows에서 LumaView를 최종 선택해야 하며 기존 UserChoice를 강제로 변경하지 않습니다. 연결한 뒤 프로그램 폴더를 옮겼다면 새 위치에서 다시 연결하세요.
 
-3D 보기에 필요한 Microsoft Edge WebView2 Runtime이 없으면 설치 프로그램이 Microsoft의 공식 설치 도구로 설치합니다. 이 경우 인터넷 연결이 필요합니다. .NET Framework 4.8이 없는 PC에는 설치 안내가 표시됩니다.
+3D 보기를 사용하려면 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)이 필요합니다. 대부분의 Windows 10/11에는 이미 설치되어 있습니다. .NET Framework 4.8이 없는 PC에서는 먼저 해당 구성 요소를 설치하세요.
 
-설정과 캐시는 사용자 프로필에 보관합니다. 제거 시 개인 설정은 유지하며 이 설치본의 파일 형식 등록만 정리합니다. WebView2는 다른 프로그램과 공유하므로 제거하지 않습니다.
+프로그램 설치 과정은 없습니다. 설정과 캐시는 사용자 프로필에 보관하므로 다른 버전 폴더에서도 기존 설정을 사용합니다.
 
 ## 업데이트
 
-일반 탐색 화면에서 **설정 → 오른쪽의 업데이트** 버튼을 누르세요. `trackk81/LumaView`의 최신 공개 정식 릴리스를 확인합니다. 새 버전은 사용자 확인 후 내려받고 SHA-256 검사값을 검증한 뒤 설치합니다. 초안과 사전 릴리스는 자동 업데이트 대상에서 제외합니다.
+일반 탐색 화면에서 **설정 오른쪽의 업데이트** 버튼을 누르세요. `trackk81/LumaView`의 최신 공개 정식 릴리스를 확인합니다. 새 버전의 ZIP을 내려받고 SHA-256 검사값을 검증한 뒤 파일이 있는 폴더를 엽니다. 압축을 모두 풀고 새 폴더의 `LumaView.exe`를 실행하세요. 실행 중인 파일을 자동으로 덮어쓰지 않습니다. 초안과 사전 릴리스는 업데이트 대상에서 제외합니다.
 
-아직 공개 릴리스가 없으면 ‘아직 공개된 업데이트가 없습니다’로 표시됩니다. 현재 배포 후보는 서명되지 않았으므로 Windows가 게시자 확인 안내를 표시할 수 있습니다.
+공개 릴리스가 없으면 ‘아직 공개된 업데이트가 없습니다’로 표시됩니다. 프로그램은 아직 코드 서명되지 않았습니다. 0.1.0 개발 버전은 설치 파일을 확인하는 방식이므로 처음 한 번 0.1.1 ZIP을 직접 받아 실행하세요.
 
 ## 주요 기능
 
@@ -52,10 +52,10 @@ Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니�
 ```powershell
 .\build.ps1 -OutputDirectory .\dist\app
 .\scripts\test-release.ps1
-.\scripts\package.ps1 -InnoCompiler 'C:\Program Files\Inno Setup 7\ISCC.exe'
+.\scripts\package.ps1
 ```
 
-`VERSION`은 `major.minor.patch` 형식입니다. Inno Setup 6.5 이상이 필요합니다. `dist`에 설치 EXE, 휴대용 ZIP, `SHA256SUMS.txt`가 생성됩니다. `.github/workflows/release.yml`은 `v0.1.0` 형태의 태그를 푸시하면 검사와 빌드를 수행하고 GitHub 릴리스 **초안**을 만듭니다. 검사 후 게시하면 앱의 업데이트 버튼에서 확인할 수 있습니다.
+`VERSION`은 `major.minor.patch` 형식입니다. `dist`에 휴대용 ZIP과 `SHA256SUMS.txt`가 생성됩니다. `.github/workflows/release.yml`은 `v0.1.1` 형태의 태그를 푸시하면 검사와 빌드를 수행하고 GitHub 릴리스 **초안**을 만듭니다. 검사 후 게시하면 앱의 업데이트 버튼에서 확인할 수 있습니다. 설치 도구는 ZIP 배포에 필요하지 않습니다.
 
 기존 전체화면 이미지/영상/시퀀스/3D 표시는 직접 실행되는 로컬 프로그램입니다. 자동 시작 업데이트 검사와 사용 기록 전송은 없으며, 업데이트 버튼을 누를 때 GitHub에 접속합니다.
 
