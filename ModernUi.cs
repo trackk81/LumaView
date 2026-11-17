@@ -105,15 +105,22 @@ class ModernButton:Button {
 }
 sealed class ModernCombo:ModernButton {
     public readonly System.Collections.ArrayList Items=new System.Collections.ArrayList();
+    ContextMenuStrip choices;
     int selectedIndex=-1;
     public event EventHandler SelectedIndexChanged;
     public int SelectedIndex {get{return selectedIndex;}set{if(value<0||value>=Items.Count)throw new ArgumentOutOfRangeException("value");if(selectedIndex==value)return;selectedIndex=value;Text=Convert.ToString(Items[value]);if(SelectedIndexChanged!=null)SelectedIndexChanged(this,EventArgs.Empty);}}
     public ModernCombo(){AlignLeft=Chevron=true;MinimumSize=new Size(100,40);Margin=new Padding(0,0,0,18);AccessibleRole=AccessibleRole.ComboBox;Click+=delegate{ShowChoices();};}
     void ShowChoices(){
-        var menu=new ContextMenuStrip{Font=Font,ShowImageMargin=false,ShowCheckMargin=true};
+        // WinForms still accesses a dropdown after raising Closed. Keep it alive
+        // for the owning control's lifetime instead of disposing inside Closed.
+        var menu=choices??(choices=new ContextMenuStrip{ShowImageMargin=false,ShowCheckMargin=true});
+        if(menu.Visible){menu.Close();return;}
+        menu.Font=Font;
+        while(menu.Items.Count>0)menu.Items[0].Dispose();
         for(int i=0;i<Items.Count;i++){int index=i;var item=new ToolStripMenuItem(Convert.ToString(Items[i])){Checked=i==SelectedIndex,Padding=new Padding(8,7,8,7)};item.Click+=delegate{SelectedIndex=index;};menu.Items.Add(item);}
-        menu.Closed+=delegate{menu.Dispose();};Ui.Apply(menu);menu.Show(this,new Point(0,Height));
+        Ui.Apply(menu);menu.Show(this,new Point(0,Height));
     }
+    protected override void Dispose(bool disposing){if(disposing&&choices!=null){choices.Dispose();choices=null;}base.Dispose(disposing);}
     protected override bool ProcessCmdKey(ref Message message,Keys key){if(key==Keys.Space||key==Keys.Enter||key==(Keys.Alt|Keys.Down)){ShowChoices();return true;}if(key==Keys.Up||key==Keys.Down){SelectedIndex=Math.Max(0,Math.Min(Items.Count-1,SelectedIndex+(key==Keys.Down?1:-1)));return true;}return base.ProcessCmdKey(ref message,key);}
 }
 }

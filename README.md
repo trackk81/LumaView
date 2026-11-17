@@ -6,7 +6,7 @@ Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어
 
 Windows 10/11 64비트, .NET Framework 4.8 이상이 필요합니다.
 
-1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.4-win-x64.zip`을 받습니다.
+1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.5-win-x64.zip`을 받습니다.
 2. ZIP 파일의 **압축을 모두 풀고** 원하는 폴더에 둡니다.
 3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, `video-runtime`, DLL 파일도 함께 유지하세요.
 
@@ -68,6 +68,7 @@ Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니�
 .\build.ps1 -OutputDirectory .\dist\app
 .\scripts\test-release.ps1
 .\scripts\test-updater.ps1
+.\scripts\test-settings-interaction.ps1
 .\scripts\package.ps1
 ```
 

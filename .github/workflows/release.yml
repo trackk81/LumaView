@@ -24,6 +24,9 @@ jobs:
       - name: Test in-place update and rollback
         shell: pwsh
         run: .\scripts\test-updater.ps1
+      - name: Test language and theme selection
+        shell: pwsh
+        run: .\scripts\test-settings-interaction.ps1
       - name: Fetch pinned video runtime
         shell: pwsh
         run: .\scripts\fetch-video-runtime.ps1
