@@ -10,7 +10,10 @@ New-Item -ItemType Directory -Force -Path $work | Out-Null
 $archive=Join-Path $work 'mpv.7z'
 Invoke-WebRequest -Uri $source.asset -OutFile $archive
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $source.asset_sha256) { throw 'Downloaded video runtime checksum mismatch' }
-& tar -xf $archive -C $work
+$sevenZip=(Get-Command 7z -ErrorAction SilentlyContinue).Source
+if (!$sevenZip) { $candidate=Join-Path $env:ProgramFiles '7-Zip\7z.exe'; if (Test-Path -LiteralPath $candidate) { $sevenZip=$candidate } }
+if ($sevenZip) { & $sevenZip x "-o$work" -y $archive | Out-Null }
+else { & tar -xf $archive -C $work }
 if ($LASTEXITCODE -ne 0) { throw 'Unable to extract the video runtime' }
 New-Item -ItemType Directory -Force -Path (Join-Path $runtime 'mpv') | Out-Null
 foreach ($name in @('mpv.exe','d3dcompiler_43.dll','mpv\fonts.conf')) { Copy-Item -LiteralPath (Join-Path $work $name) -Destination (Join-Path $runtime $name) -Force }
