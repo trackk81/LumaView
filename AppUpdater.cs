@@ -104,7 +104,7 @@ static class AppUpdater {
             string temporary=null;
             try{
                 ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
-                using(var client=new HttpClient{Timeout=TimeSpan.FromSeconds(30)}){
+                using(var client=new HttpClient{Timeout=TimeSpan.FromMinutes(5)}){
                     client.DefaultRequestHeaders.UserAgent.ParseAdd("LumaView/"+CurrentVersion);
                     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
                     client.DefaultRequestHeaders.CacheControl=new System.Net.Http.Headers.CacheControlHeaderValue{NoCache=true};
