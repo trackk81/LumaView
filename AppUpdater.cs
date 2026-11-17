@@ -14,6 +14,7 @@ using System.Windows.Forms;
 
 namespace LumaView {
 static class AppUpdater {
+    internal static bool ExitForUpdate;
     internal const string Repository="trackk81/LumaView";
     const long MaxPackageBytes=200L*1024*1024;
     public sealed class Asset { public string name{get;set;} public string browser_download_url{get;set;} public long size{get;set;} }
@@ -74,6 +75,26 @@ static class AppUpdater {
             if(total!=asset.size)throw new InvalidDataException("Incomplete ZIP download.");
         }
     }
+    static async Task LaunchInstaller(Form owner,string folder,Version latest,UpdateFile[] files,CancellationToken token){
+        string target=Path.GetDirectoryName(Application.ExecutablePath);
+        string helper=Path.Combine(folder,"LumaView.Updater.exe");
+        File.Copy(Path.Combine(target,"LumaView.Updater.exe"),helper,false);
+        UpdateJob job;using(var process=Process.GetCurrentProcess()){
+            var viewer=owner as Viewer;
+            job=new UpdateJob{Id=Guid.NewGuid().ToString("N"),WorkRoot=folder,TargetRoot=target,FromVersion=CurrentVersion.ToString(),ToVersion=latest.ToString(),Language=Ui.Language,ParentPid=process.Id,ParentStarted=process.StartTime.ToUniversalTime().Ticks,RestartPath=viewer==null?null:viewer.UpdateRestartPath,Files=files};
+        }
+        UpdateFiles.SaveJob(job);
+        using(var helperProcess=Process.Start(new ProcessStartInfo(helper,UpdateFiles.Quote(Path.Combine(folder,"job.json"))){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=folder})){
+            var watch=Stopwatch.StartNew();
+            while(!File.Exists(Path.Combine(folder,"ready"))){
+                token.ThrowIfCancellationRequested();string error=Path.Combine(folder,"worker-error.txt");
+                if(File.Exists(error))throw new IOException(File.ReadAllText(error));
+                if(helperProcess.HasExited)throw new IOException(Say("업데이트 적용 프로그램을 시작하지 못했습니다.","Could not start the update installer."));
+                if(watch.Elapsed>TimeSpan.FromSeconds(60))throw new TimeoutException(Say("업데이트 준비 시간이 초과되었습니다. 현재 버전은 유지됩니다.","Update preparation timed out. Your current version is unchanged."));
+                await Task.Delay(100,token);
+            }
+        }
+    }
     public static async Task CheckAsync(Form owner,Button button){
         button.Enabled=false;button.Text=Say("확인 중…","Checking…");
         Version current=CurrentVersion,latest=null;bool checkedRelease=false;
@@ -95,7 +116,8 @@ static class AppUpdater {
                     latest=ReleaseVersion(releaseJson);checkedRelease=true;
                     if(latest==null||latest<=current){MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+NoUpdateStatus(current,latest),caption,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
                     var update=ParseRelease(releaseJson);
-                    if(MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("새 버전 ZIP을 내려받을까요?\n파일 검증 후 압축 파일이 있는 폴더를 엽니다.","Download the new portable ZIP?\nAfter verification, its containing folder will open."),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
+                    if(MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("새 버전으로 업데이트할까요?\n파일 검증 후 LumaView를 종료하고 현재 폴더에 설치한 다음 자동으로 다시 실행합니다.\n설정은 유지됩니다.","Install the new version?\nAfter verification, LumaView will close, update in its current folder, and reopen automatically.\nYour settings will be kept."),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
+                    UpdateFiles.CheckWritable(Path.GetDirectoryName(Application.ExecutablePath));
                     string sums=await ReadSmall(client,update.Checksums.browser_download_url,65536,cancel.Token);
                     string expected=ExpectedHash(sums,update.Package.name);
                     string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LumaView","Updates",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
@@ -103,10 +125,14 @@ static class AppUpdater {
                     await Download(client,update.Package,temporary,percent=>{if(!button.IsDisposed)button.Text=percent+"%";},cancel.Token);
                     if(!await Task.Run(()=>VerifyHash(temporary,expected)))throw new InvalidDataException(Say("다운로드 파일 검증에 실패했습니다. 다시 시도해 주세요.","Download verification failed. Please try again."));
                     cancel.Token.ThrowIfCancellationRequested();string packagePath=Path.Combine(folder,update.Package.name);File.Move(temporary,packagePath);temporary=null;
-                    MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("ZIP을 내려받고 검증했습니다.\n현재 앱을 종료하고 압축을 모두 푼 뒤 새 폴더의 LumaView.exe를 실행하세요.","The ZIP has been downloaded and verified.\nClose this app, extract all files, then run LumaView.exe from the new folder."),caption);Process.Start(new ProcessStartInfo("explorer.exe", "/select,\""+packagePath+"\""){UseShellExecute=true});
+                    button.Text=Say("검증 중…","Verifying…");
+                    var files=await Task.Run(()=>UpdateFiles.Extract(packagePath,Path.Combine(folder,"payload"),latest.ToString()));
+                    cancel.Token.ThrowIfCancellationRequested();button.Text=Say("설치 준비…","Preparing…");
+                    await LaunchInstaller(owner,folder,latest,files,cancel.Token);
+                    owner.FormClosed-=closed;ExitForUpdate=true;Application.Exit();
                 }
             }catch(OperationCanceledException){if(!owner.IsDisposed)MessageBox.Show(owner,VersionsText(current,latest,checkedRelease)+"\n\n"+Say("업데이트 요청 시간이 초과되었습니다. 다시 시도해 주세요.","The update request timed out. Please try again."),caption);}
-            catch(Exception ex){if(!owner.IsDisposed&&MessageBox.Show(owner,VersionsText(current,latest,checkedRelease)+"\n\n"+Say("업데이트를 확인하거나 다운로드하지 못했습니다.\n","Could not check or download the update.\n")+ex.Message+"\n\n"+Say("GitHub 릴리스 페이지를 열까요?","Open the GitHub releases page?"),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes){try{Process.Start(new ProcessStartInfo("https://github.com/"+Repository+"/releases/"+(latest==null?"latest":"tag/v"+latest)){UseShellExecute=true});}catch(Exception){}}}
+            catch(Exception ex){if(!owner.IsDisposed&&MessageBox.Show(owner,VersionsText(current,latest,checkedRelease)+"\n\n"+Say("업데이트를 준비하지 못했습니다. 현재 버전은 유지됩니다.\n","Could not prepare the update. Your current version is unchanged.\n")+ex.Message+"\n\n"+Say("GitHub 릴리스 페이지를 열까요?","Open the GitHub releases page?"),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes){try{Process.Start(new ProcessStartInfo("https://github.com/"+Repository+"/releases/"+(latest==null?"latest":"tag/v"+latest)){UseShellExecute=true});}catch(Exception){}}}
             finally{owner.FormClosed-=closed;if(temporary!=null)try{File.Delete(temporary);}catch(IOException){}catch(UnauthorizedAccessException){}if(!button.IsDisposed){button.Text=Ui.T("업데이트");button.Enabled=true;}}
         }
     }

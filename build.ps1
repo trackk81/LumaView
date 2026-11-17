@@ -14,13 +14,13 @@ using System.Reflection;
 [assembly: AssemblyVersion("$version.0")]
 [assembly: AssemblyFileVersion("$version.0")]
 "@ | Set-Content -LiteralPath $versionFile -Encoding UTF8
-$references = @('System.Windows.Forms.dll','System.Drawing.dll','System.Xaml.dll','System.Web.Extensions.dll','System.Net.Http.dll')
+$references = @('System.Windows.Forms.dll','System.Drawing.dll','System.Xaml.dll','System.Web.Extensions.dll','System.Net.Http.dll','System.IO.Compression.dll','System.IO.Compression.FileSystem.dll')
 foreach ($name in @('WindowsBase','PresentationCore','PresentationFramework','WindowsFormsIntegration')) {
     $references += Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\WPF\$name.dll"
 }
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.Core.dll'
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.WinForms.dll'
-$names = @('LumaView','ExtendedDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','AppSettings','FileAssociations','ModelViewer','AppUpdater','ComponentSetup','ModernUi')
+$names = @('LumaView','ExtendedDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','AppSettings','FileAssociations','ModelViewer','AppUpdater','ComponentSetup','ModernUi','UpdateFiles')
 $arguments = @('/nologo',"/target:$Target",'/platform:x64','/optimize+',"/out:$outputRoot\LumaView.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico")
 $arguments += $references | ForEach-Object { "/reference:$_" }
 $arguments += $names | ForEach-Object { Join-Path $PSScriptRoot "$_.cs" }
@@ -28,3 +28,7 @@ $arguments += $versionFile
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 Write-Output "Built LumaView $version -> $outputRoot\LumaView.exe"
+
+$workerArguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',"/out:$outputRoot\LumaView.Updater.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico",'/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.Web.Extensions.dll','/reference:System.IO.Compression.dll','/reference:System.IO.Compression.FileSystem.dll',(Join-Path $PSScriptRoot 'UpdateFiles.cs'),(Join-Path $PSScriptRoot 'UpdateWorker.cs'),$versionFile)
+& $compiler @workerArguments
+if ($LASTEXITCODE -ne 0) { throw 'Update worker build failed' }

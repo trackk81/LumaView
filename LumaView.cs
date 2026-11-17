@@ -16,7 +16,13 @@ static class Program {
         if (FileAssociations.HandleInstallerCommand(args)) return;
         var appIcon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Application.Idle+=delegate{foreach(Form window in Application.OpenForms)if(window.Icon!=appIcon)window.Icon=appIcon;};
-        Application.Run(new Viewer(args.Length > 0 ? args[0] : null));
+        string updateId=null;Guid parsed;
+        if(args.Length>=2&&args[0]=="--update-complete"&&Guid.TryParseExact(args[1],"N",out parsed)){updateId=args[1];args=args.Skip(2).ToArray();}
+        using(var viewer=new Viewer(args.Length>0?args[0]:null)){
+            if(updateId!=null)viewer.Shown+=delegate{try{using(var ready=System.Threading.EventWaitHandle.OpenExisting("Local\\LumaView.Update."+updateId)){ready.Set();viewer.ShowUpdateComplete();}}catch(System.Threading.WaitHandleCannotBeOpenedException){}};
+            Application.Run(viewer);
+        }
+        if(AppUpdater.ExitForUpdate)Environment.Exit(0);
     }
 }
 class NaturalSort : System.Collections.Generic.IComparer<string> {
@@ -125,6 +131,8 @@ class Canvas : Control {
     }
 }
 partial class Viewer : Form {
+    internal string UpdateRestartPath {get{return browsingFolder;}}
+    internal void ShowUpdateComplete(){info.Text=Ui.Language=="en"?"Updated to v"+AppUpdater.CurrentVersion:"v"+AppUpdater.CurrentVersion+" 업데이트 완료";}
     readonly Album album=new Album();
     readonly Canvas canvas=new Canvas();
     readonly ToolStrip toolbar=new ViewerToolStrip();
