@@ -28,6 +28,7 @@ sealed class FullscreenChrome : IDisposable {
     readonly Timer timer=new Timer{Interval=30};
     readonly ToolStripButton pin=new ToolStripButton(Ui.T("고정")){CheckOnClick=true,Alignment=ToolStripItemAlignment.Right,DisplayStyle=ToolStripItemDisplayStyle.Image,Overflow=ToolStripItemOverflow.Never,AutoSize=false,Width=48,Height=40,ImageScaling=ToolStripItemImageScaling.None,ToolTipText=Ui.T("메뉴와 재생바를 항상 표시합니다")};
     readonly Button close=new Button{Size=new Size(46,32),FlatStyle=FlatStyle.Flat,TabStop=false,Anchor=AnchorStyles.Top|AnchorStyles.Right,AccessibleName="LumaView 종료 / Exit"};
+    readonly Label versionLabel=new Label{Text=AppUpdater.AppTitle,Location=new Point(12,6),Height=22,AutoEllipsis=true};
     readonly Bitmap pinOff=DrawIcon(false,false),pinOn=DrawIcon(true,false),closeIcon=DrawIcon(false,true);
     DateTime topUntil,bottomUntil;
     bool enabled,disposed;
@@ -39,8 +40,8 @@ sealed class FullscreenChrome : IDisposable {
         pin.Image=pinOff;close.Image=closeIcon;
         pin.AccessibleName=Ui.T("고정");close.AccessibleName="LumaView 종료 / Exit";
         top.Padding=new Padding(0,32,0,0);
-        toolbar.Items.Add(pin);top.Controls.Add(toolbar);top.Controls.Add(close);
-        top.SizeChanged+=delegate{close.Location=new Point(top.ClientSize.Width-close.Width,0);};
+        toolbar.Items.Add(pin);top.Controls.Add(toolbar);top.Controls.Add(close);top.Controls.Add(versionLabel);
+        top.SizeChanged+=delegate{close.Location=new Point(top.ClientSize.Width-close.Width,0);versionLabel.Width=Math.Max(1,top.ClientSize.Width-close.Width-24);};
         close.Click+=delegate{
             Form root=owner;while(root.Owner!=null)root=root.Owner;
             if(root!=owner){var main=root;main.BeginInvoke((Action)delegate{if(!main.IsDisposed)main.Close();});}

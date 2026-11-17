@@ -96,7 +96,7 @@ partial class Viewer {
             browsingFolder=path;browserFiles=files;folderAddress.Text=path;int version=++folderVersion;
             fileList.BeginUpdate();fileList.Items.Clear();thumbnails.Images.Clear();using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
             foreach(string p in files){string[] sequence;bool sq=sequenceGroups.TryGetValue(p,out sequence);var item=new ListViewItem(Path.GetFileName(p)+(sq?"  ["+sequence.Length+Ui.T(" 프레임]"):""),0){Tag=p,ToolTipText=p+(sq?Ui.T("\nSQ 시퀀스 · ")+sequence.Length+Ui.T(" 프레임"):"")};fileList.Items.Add(item);}
-            fileList.EndUpdate();SelectFolderNode(path);Text=path+" — LumaView";
+            fileList.EndUpdate();SelectFolderNode(path);Text=AppUpdater.WindowTitle(path);
             if(fileList.Items.Count>0){fileList.Items[0].Selected=true;fileList.Items[0].Focused=true;}
             UpdateBrowserInfo();LoadThumbnails(files,version);
         }catch(Exception ex){fileList.EndUpdate();MessageBox.Show(this,ex.Message,Ui.T("폴더를 열 수 없습니다"));}
@@ -129,7 +129,7 @@ partial class Viewer {
         string dir=Path.GetDirectoryName(album.Current);
         if(!full && !String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
         foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals((string)item.Tag,album.Current,StringComparison.OrdinalIgnoreCase);if(item.Selected){item.Focused=true;item.EnsureVisible();}}
-        if(!full){Text=browsingFolder+" — LumaView";UpdateBrowserInfo();}
+        if(!full){Text=AppUpdater.WindowTitle(browsingFolder);UpdateBrowserInfo();}
     }
     void OpenSelectedFullscreen(){if(busy)return;if(fileList.SelectedItems.Count==0)return;enterAfterLoad=true;Open((string)fileList.SelectedItems[0].Tag);}
     bool OpenSequence(string path){

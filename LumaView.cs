@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Drawing;
@@ -139,7 +139,7 @@ partial class Viewer : Form {
     bool startupOpening;
     public Viewer(string path) {
         startupOpening=path!=null && File.Exists(path);
-        Text="LumaView"; Size=new Size(1120,760); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
+        Text=AppUpdater.AppTitle; Size=new Size(1120,760); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
         Font=new Font("Malgun Gothic",9); BackColor=Color.FromArgb(24,26,30); KeyPreview=true; AllowDrop=true;
         toolbar.GripStyle=ToolStripGripStyle.Hidden; toolbar.Padding=new Padding(10,8,10,8); toolbar.BackColor=Color.FromArgb(38,42,48); toolbar.ForeColor=Color.White; toolbar.RenderMode=ToolStripRenderMode.System;
         Add(Ui.T("탐색기"),ToggleExplorer,"Ctrl+B"); Add(Ui.T("목록"),ShowPicker,"Enter"); Add(Ui.T("열기"),Choose,"Ctrl+O"); Add(Ui.T("폴더"),Folder,"Ctrl+Shift+O"); Sep();
@@ -184,7 +184,7 @@ partial class Viewer : Form {
     void Guard(Action action){try{action();}catch(Exception ex){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
     void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitFullscreen();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(OpenSequence(path))return;if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}LoadAsync(path,-1);}
     void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
-    void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=Path.GetFileName(album.Current)+" — LumaView"; SyncExplorer();}
+    void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}if(album.Files.Length>0)Select(album.Index+delta);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
     void Rotate(bool clockwise){if(busy || album.Image==null)return;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);canvas.Reset();}

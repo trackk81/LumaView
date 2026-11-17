@@ -112,7 +112,7 @@ sealed class VideoViewer : Form {
     string[] files;
     int index;
     public VideoViewer(string path,Rectangle bounds){
-        Text=Ui.T("LumaView 영상");BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;
+        Text=AppUpdater.WindowTitle(Ui.T("LumaView 영상").Replace("LumaView ",""));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;
         files=Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path))).Where(MediaFiles.IsVideo).OrderBy(p=>p,new NaturalSort()).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,Path.GetFullPath(path),StringComparison.OrdinalIgnoreCase));
         if(index<0){files=new[]{Path.GetFullPath(path)};index=0;}
         tools.GripStyle=ToolStripGripStyle.Hidden;tools.Padding=new Padding(10,8,10,8);

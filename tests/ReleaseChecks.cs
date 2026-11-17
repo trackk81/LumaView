@@ -1,4 +1,4 @@
-using System;using System.IO;using System.Linq;using System.Reflection;using System.Drawing;using System.Windows.Forms;using System.Web.Script.Serialization;using System.Runtime.InteropServices;using Microsoft.Win32;using System.Collections.Generic;
+﻿using System;using System.IO;using System.Linq;using System.Reflection;using System.Drawing;using System.Windows.Forms;using System.Web.Script.Serialization;using System.Runtime.InteropServices;using Microsoft.Win32;using System.Collections.Generic;
 class ReleaseChecks {
 static Assembly app;static BindingFlags stat=BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
 static object Call(string type,string name,params object[] args){try{return app.GetType("LumaView."+type).GetMethod(name,stat).Invoke(null,args);}catch(TargetInvocationException e){throw e.InnerException;}}
@@ -34,6 +34,18 @@ static void Updater(){
  Check(Call("AppUpdater","ParseRelease",Release("0.2.0","trackk81/LumaView",true))==null,"exclude prerelease updates");
  Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0","other/OtherApp")),"reject ZIP URL from another repository");
  Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0").Replace("SHA256SUMS.txt","absent.txt")),"reject release missing checksums");
+ var current=new Version(0,2,1);var older=new Version(0,2,0);
+ foreach(string language in new[]{"ko","en"}){
+  app.GetType("LumaView.Ui").GetField("Language").SetValue(null,language);
+  string versions=(string)Call("AppUpdater","VersionsText",current,older,true);
+  Check(versions.Contains("v0.2.1")&&versions.Contains("v0.2.0"),"show running and GitHub versions in "+language);
+  string equal=(string)Call("AppUpdater","NoUpdateStatus",current,new Version(0,2,1));string newer=(string)Call("AppUpdater","NoUpdateStatus",current,older);Check(equal!=newer,"distinguish latest and locally newer version in "+language);
+  Check((string)Call("AppUpdater","VersionsText",current,null,false)!=(string)Call("AppUpdater","VersionsText",current,null,true),"distinguish check failure from no release in "+language);
+ }
+ app.GetType("LumaView.Ui").GetField("Language").SetValue(null,"ko");
+ Check((Version)Call("AppUpdater","ReleaseVersion",Release("0.3.0").Replace("SHA256SUMS.txt","absent.txt"))==new Version(0,3,0),"retain GitHub version when release asset validation fails");
+ var running=(Version)app.GetType("LumaView.AppUpdater").GetProperty("CurrentVersion",stat).GetValue(null,null);
+ Check(((string)Call("AppUpdater","WindowTitle",new string('x',300))).StartsWith("LumaView v"+running),"version precedes long paths in window titles");
  string hash=new string('a',64);Check((string)Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n","portable.zip")==hash,"read exact ZIP checksum");
  Reject(()=>Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n"+hash+"  portable.zip","portable.zip"),"reject duplicate checksums");
  string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified ZIP bytes");}finally{File.Delete(temp);}
@@ -42,6 +54,7 @@ static IEnumerable<Control> Walk(Control root){foreach(Control child in root.Con
 static void Layout(){
  using(var form=(Form)Activator.CreateInstance(app.GetType("LumaView.Viewer"),new object[]{null})){
   form.Show();for(int n=0;n<25;n++){Application.DoEvents();System.Threading.Thread.Sleep(10);}
+  Check(form.Text.StartsWith("LumaView v"),"gallery title displays running version first");
   var update=Walk(form).OfType<Button>().Single(x=>x.Name=="updateButton");
   Check(update.Visible&&update.Enabled,"update button appears in normal gallery");
   var siblings=update.Parent.Controls.Cast<Control>().ToArray();int index=Array.IndexOf(siblings,update);Check(index>0&&(siblings[index-1].Text=="설정"||siblings[index-1].Text=="Settings")&&update.Left>=siblings[index-1].Right,"update button sits directly beside settings");

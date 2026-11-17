@@ -52,7 +52,7 @@ sealed class SequenceViewer : Form {
     long bytes;
     const long Budget=256L*1024*1024;
     public SequenceViewer(string[] files,Rectangle bounds,int startIndex=0){
-        frames=files;Text=Ui.T("LumaView 시퀀스");Font=new Font("Malgun Gothic",9);BackColor=Color.Black;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
+        frames=files;Text=AppUpdater.WindowTitle(Ui.T("LumaView 시퀀스").Replace("LumaView ",""));Font=new Font("Malgun Gothic",9);BackColor=Color.Black;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),Close);play=Add(Ui.T("Ⅱ 일시정지"),Toggle);
         Add(Ui.T("−5초"),delegate{Jump(-(int)Math.Round(5*fps));});Add(Ui.T("+5초"),delegate{Jump((int)Math.Round(5*fps));});Add(Ui.T("처음으로"),delegate{Request(0);});
         Add(Ui.T("◀ 프레임 (D)"),delegate{Step(-1);});Add(Ui.T("프레임 ▶ (F)"),delegate{Step(1);});

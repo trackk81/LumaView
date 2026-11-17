@@ -68,7 +68,7 @@ sealed class ModelViewer:Form {
     readonly System.Collections.Generic.Dictionary<string,ToolStripButton> visualButtons=new System.Collections.Generic.Dictionary<string,ToolStripButton>();
     string statistics="";
     public ModelViewer(string file,Rectangle bounds){
-        path=Path.GetFullPath(file);Text=Path.GetFileName(path)+" — LumaView 3D";BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
+        path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),delegate{Close();});Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
         var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
         Toggle(Ui.T("와이어프레임"),"wire",false);Toggle(Ui.T("텍스처"),"textures",true);Toggle(Ui.T("그리드"),"grid",true);Toggle(Ui.T("플랫 컬러"),"flat",false);Toggle("SSAO","ssao",false);

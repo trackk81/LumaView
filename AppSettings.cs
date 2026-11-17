@@ -299,7 +299,7 @@ sealed class CustomColorEditor:UserControl {
 }
 sealed class SettingsDialog:Form {
     public SettingsDialog(){
-        Text=Ui.T("설정");Font=new Font("Malgun Gothic",10);ClientSize=new Size(600,530);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;ShowInTaskbar=false;StartPosition=FormStartPosition.CenterParent;
+        Text=AppUpdater.WindowTitle(Ui.T("설정"));Font=new Font("Malgun Gothic",10);ClientSize=new Size(600,530);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;ShowInTaskbar=false;StartPosition=FormStartPosition.CenterParent;
         var language=new ComboBox{Left=135,Top=30,Width=275,DropDownStyle=ComboBoxStyle.DropDownList};language.Items.AddRange(new object[]{"한국어","English"});language.SelectedIndex=Ui.Language=="en"?1:0;
         var theme=new ComboBox{Left=135,Top=85,Width=275,DropDownStyle=ComboBoxStyle.DropDownList};theme.Items.AddRange(new object[]{Ui.T("어둡게"),Ui.T("밝게"),Ui.T("커스텀")});theme.SelectedIndex=Ui.Theme=="light"?1:Ui.Theme=="custom"?2:0;
         var colors=new CustomColorEditor{Left=24,Top=140,Width=540,Height=250};
