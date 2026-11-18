@@ -29,7 +29,23 @@ const skyMaterials=new Map(),skyReflectionStrength={value:1};
 function error(e){message.textContent=String(e?.message||e);post('error:'+message.textContent);}
 window.addEventListener('error',e=>error(e.error||e.message));
 window.addEventListener('unhandledrejection',e=>error(e.reason));
-function render(){drawPending=false;if(!renderer)return;controls.update();renderScene();}
+let viewportWidth=0,viewportHeight=0;
+function render(){
+ drawPending=false;
+ if(!renderer||renderer.getContext().isContextLost())return;
+ const width=innerWidth,height=innerHeight;
+ if(width<2||height<2)return;
+ // Keep post-processing buffers bounded on large or high-DPI screens.
+ const ratio=Math.min(devicePixelRatio,2,Math.sqrt(4194304/(width*height)));
+ if(width!==viewportWidth||height!==viewportHeight||ratio!==renderer.getPixelRatio()){
+  viewportWidth=width;viewportHeight=height;
+  camera.aspect=width/height;camera.updateProjectionMatrix();
+  if(ratio!==renderer.getPixelRatio())renderer.setPixelRatio(ratio);
+  renderer.setSize(width,height);
+  resizeEffects();
+ }
+ controls.update();renderScene();
+}
 function updateCameraDepth(){
  if(!model)return;
  // Tight, view-dependent depth range instead of a million-to-one fixed ratio.
@@ -43,13 +59,16 @@ function updateCameraDepth(){
 }
 function renderScene(){
  updateCameraDepth();
+ renderer.setRenderTarget(null);
+ renderer.setViewport(0,0,viewportWidth,viewportHeight);
+ renderer.setScissorTest(false);
  effects.render(ssao,flat,aoStrength);
  renderer.setRenderTarget(null);const autoClear=renderer.autoClear;renderer.autoClear=false;renderer.clearDepth();const near=camera.near,far=camera.far;camera.near=Math.min(near,radius*.0001);camera.far=Math.max(far,camera.position.length()+radius+Math.max(0,...userLights.filter(x=>x.active).map(x=>x.light.position.length())));camera.updateProjectionMatrix();
  renderer.render(overlayScene,camera);camera.near=near;camera.far=far;camera.updateProjectionMatrix();renderer.autoClear=autoClear;
 }
 function resizeEffects(){effects?.resize();}
 function draw(){if(!drawPending){drawPending=true;requestAnimationFrame(render);}}
-function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);resizeEffects();draw();}
+function resize(){draw();}
 function fit(axis='iso'){
  if(!model)return;
  const distance=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))/Math.min(1,camera.aspect)*1.12;
@@ -105,9 +124,10 @@ function materials(){
  const next=list.map(m=>{if(flat){const cache=textures?flatMaps:flatColors;let p=cache.get(m);if(!p){p=new THREE.MeshBasicMaterial({color:m.color?.clone()||new THREE.Color(0xb4bdc9),map:textures?m.map:null,vertexColors:m.vertexColors,alphaMap:m.alphaMap,opacity:m.opacity,transparent:m.transparent,alphaTest:m.alphaTest,side:m.side,depthWrite:m.depthWrite,toneMapped:false});cache.set(m,p);}p.wireframe=wire;return p;}if(effects?.settings.toon){const p=effects.material(m,textures);p.wireframe=wire;return p;}if(textures){const p=skyDome&&environment.texture?skyMaterial(m):m;p.wireframe=wire;return p;}let p=plain.get(m);if(!p){p=new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,metalness:0,side:m.side});plain.set(m,p);}p.wireframe=wire;return p;});o.material=Array.isArray(source)?next:next[0];});draw();
 }
 function capture(){
+ if(renderer.getContext().isContextLost()||!viewportWidth)return;
  renderScene();const c=document.createElement('canvas');c.width=180;c.height=120;const g=c.getContext('2d');g.fillStyle='#202328';g.fillRect(0,0,180,120);const ratio=Math.min(180/renderer.domElement.width,120/renderer.domElement.height);const w=renderer.domElement.width*ratio,h=renderer.domElement.height*ratio;g.drawImage(renderer.domElement,(180-w)/2,(120-h)/2,w,h);post('thumbnail:'+c.toDataURL('image/png').split(',')[1]);
 }
-window.setRenderBase=value=>{ssao=value.ssao;skyDome=value.sky;flat=value.flat;applySky();post('renderBase:'+JSON.stringify({ssao,sky:skyDome,flat}));};
+window.setRenderBase=value=>{ssao=value.ssao;skyDome=value.sky;flat=value.flat;if(typeof value.textures==='boolean')textures=value.textures;applySky();post('renderBase:'+JSON.stringify({ssao,sky:skyDome,flat,textures}));};
 window.setRenderEffects=value=>effects.apply(value);
 window.setRenderPreset=name=>effects.preset(name);
 window.toggleRenderEffects=en=>effects.toggle(en);
@@ -186,6 +206,7 @@ manager.onError=url=>failed.add(url);
 manager.onLoad=()=>{if(ready){draw();setTimeout(capture,100);}};
 try{
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x202328);renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.appendChild(renderer.domElement);
+ renderer.domElement.addEventListener('webglcontextrestored',()=>{viewportWidth=0;draw();});
  scene=new THREE.Scene();scene.background=new THREE.Color(0x202328);overlayScene=new THREE.Scene();camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.01,10000);
  environment=createEnvironment(renderer,scene,()=>{skyDome=environment.settings.enabled;skyStrength=environment.settings.intensity;applySky();},value=>{controls.enabled=!value&&!transform?.dragging;});
  transform=new TransformControls(camera,renderer.domElement);transform.setMode('translate');transform.setSpace('world');transform.setSize(.85);transform.enabled=false;overlayScene.add(transform.getHelper());

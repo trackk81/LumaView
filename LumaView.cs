@@ -30,6 +30,8 @@ class NaturalSort : System.Collections.Generic.IComparer<string> {
     public int Compare(string a, string b) { return StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b)); }
 }
 class Album : IDisposable {
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object> OpaquePhotos =
+        new System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object>();
     public string[] Files = new string[0];
     public int Index = -1;
     public Bitmap Image;
@@ -49,6 +51,7 @@ class Album : IDisposable {
                     if (orientation >= 1 && orientation <= 8) bitmap.RotateFlip(transforms[orientation]);
                 }
             } catch (ArgumentException) { }
+            if(image.RawFormat.Guid==ImageFormat.Jpeg.Guid)OpaquePhotos.Add(bitmap,new object());
             return bitmap;
         }
     }
@@ -74,7 +77,52 @@ class Album : IDisposable {
 }
 class Canvas : Control {
     public bool FlipHorizontal,FlipVertical;
-    public Bitmap Image;
+    Bitmap image;
+    public Bitmap Image {
+        get{return image;}
+        set{if(ReferenceEquals(image,value))return;image=value;InvalidateGpuImage();}
+    }
+    GpuCanvas gpu;
+    bool gpuUnavailable;
+    [DllImport("user32.dll")]
+    static extern bool ValidateRect(IntPtr window,IntPtr rectangle);
+    internal void InvalidateGpuImage(){if(gpu!=null)gpu.InvalidateImage();}
+    protected override void OnHandleDestroyed(EventArgs e){
+        if(gpu!=null){gpu.Dispose();gpu=null;}
+        gpuUnavailable=false;
+        base.OnHandleDestroyed(e);
+    }
+    protected override void WndProc(ref Message message){
+        object marker;
+        if(message.Msg==0x000F && message.WParam==IntPtr.Zero && Visible && Image!=null &&
+            Width>0 && Height>0 && !gpuUnavailable && !ShowDetails && !FlipHorizontal && !FlipVertical &&
+            Album.OpaquePhotos.TryGetValue(Image,out marker)){
+            try{
+                if(gpu==null)gpu=new GpuCanvas();
+                float scale=(float)ViewScale;
+                if(gpu.Render(Handle,ClientSize,Image,ImageBounds(scale),scale,BackColor)){
+                    ValidateRect(Handle,IntPtr.Zero);
+                    message.Result=IntPtr.Zero;
+                    return;
+                }
+                Invalidate();
+            }catch(ExternalException){DisableGpu();}
+            catch(ArgumentException){DisableGpu();}
+            catch(NotSupportedException){DisableGpu();}
+            catch(DllNotFoundException){DisableGpu();}
+            catch(EntryPointNotFoundException){DisableGpu();}
+            catch(OutOfMemoryException){DisableGpu();}
+        }
+        base.WndProc(ref message);
+    }
+    void DisableGpu(){
+        gpuUnavailable=true;
+        if(gpu!=null){gpu.Dispose();gpu=null;}
+    }
+    RectangleF ImageBounds(float scale){
+        float width=Image.Width*scale,height=Image.Height*scale;
+        return new RectangleF((Width-width)/2+Pan.X,(Height-height)/2+Pan.Y,width,height);
+    }
     public bool Fit = true;
     public double Zoom = 1;
     public bool ShowDetails; public string DetailsText="";
@@ -86,7 +134,7 @@ class Canvas : Control {
         Resize += delegate { if(Fit) Reset(); else Invalidate(); };
         MouseDown += delegate(object s,MouseEventArgs e) { if(e.Button==MouseButtons.Left) { last=e.Location; Capture=true; Cursor=Cursors.Hand; Focus(); } };
         MouseUp += delegate { Capture=false; Cursor=Cursors.Default; };
-        MouseMove += delegate(object s,MouseEventArgs e) { if(Capture && Image!=null) { Pan=new PointF(Pan.X+e.X-last.X,Pan.Y+e.Y-last.Y); last=e.Location; Invalidate(); } };
+        MouseMove += delegate(object s,MouseEventArgs e) { if(Capture && Image!=null && e.Location!=last) { Pan=new PointF(Pan.X+e.X-last.X,Pan.Y+e.Y-last.Y); last=e.Location; Invalidate(); } };
         MouseWheel += delegate(object s,MouseEventArgs e) { ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location); };
     }
     public double ViewScale { get { return Image==null?1:Fit?Math.Min((double)Math.Max(1,Width-32)/Image.Width,(double)Math.Max(1,Height-32)/Image.Height):Zoom; } }
@@ -97,6 +145,46 @@ class Canvas : Control {
         double ratio=Zoom/old;
         Pan=new PointF((float)(anchor.X-Width/2.0-(anchor.X-Width/2.0-Pan.X)*ratio),(float)(anchor.Y-Height/2.0-(anchor.Y-Height/2.0-Pan.Y)*ratio));
         Invalidate(); if(Changed!=null) Changed();
+    }
+    void DrawVisibleImage(PaintEventArgs e, RectangleF bounds, float scale){
+        var visible=RectangleF.Intersect(bounds,e.ClipRectangle);
+        if(visible.IsEmpty)return;
+        var graphics=e.Graphics;
+        var state=graphics.Save();
+        try{
+            // Keep filter samples beyond the viewport, so panning does not create a seam.
+            var region=visible;
+            if(FlipHorizontal)region.X=bounds.Right-(visible.Right-bounds.Left);
+            if(FlipVertical)region.Y=bounds.Bottom-(visible.Bottom-bounds.Top);
+            int margin=(int)Math.Ceiling(3/Math.Min(1f,scale));
+            int x=Math.Max(0,(int)Math.Floor((region.Left-bounds.Left)/scale)-margin);
+            int y=Math.Max(0,(int)Math.Floor((region.Top-bounds.Top)/scale)-margin);
+            int right=Math.Min(Image.Width,(int)Math.Ceiling((region.Right-bounds.Left)/scale)+margin);
+            int bottom=Math.Min(Image.Height,(int)Math.Ceiling((region.Bottom-bounds.Top)/scale)+margin);
+            if(right<=x||bottom<=y)return;
+            if(System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat) ||
+                (Image.PixelFormat&PixelFormat.Indexed)!=0){
+                using(var tile=new Bitmap(CheckerSize*2,CheckerSize*2)){
+                    using(var tileGraphics=Graphics.FromImage(tile)){
+                        tileGraphics.Clear(BackgroundOne);
+                        if(Checker)using(var brush=new SolidBrush(BackgroundTwo)){
+                            tileGraphics.FillRectangle(brush,CheckerSize,0,CheckerSize,CheckerSize);
+                            tileGraphics.FillRectangle(brush,0,CheckerSize,CheckerSize,CheckerSize);
+                        }
+                    }
+                    using(var brush=new TextureBrush(tile))graphics.FillRectangle(brush,visible);
+                }
+            }
+            if(FlipHorizontal||FlipVertical){
+                graphics.TranslateTransform(bounds.X+bounds.Width/2,bounds.Y+bounds.Height/2);
+                graphics.ScaleTransform(FlipHorizontal?-1:1,FlipVertical?-1:1);
+                graphics.TranslateTransform(-bounds.X-bounds.Width/2,-bounds.Y-bounds.Height/2);
+            }
+            graphics.InterpolationMode=scale>=4?InterpolationMode.NearestNeighbor:InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode=PixelOffsetMode.HighQuality;
+            var destination=new RectangleF(bounds.X+x*scale,bounds.Y+y*scale,(right-x)*scale,(bottom-y)*scale);
+            graphics.DrawImage(Image,destination,new RectangleF(x,y,right-x,bottom-y),GraphicsUnit.Pixel);
+        }finally{graphics.Restore(state);}
     }
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e);
@@ -110,14 +198,9 @@ class Canvas : Control {
                 e.Graphics.DrawString("이미지를 끌어 놓거나 파일을 열어 주세요\nCtrl+O  ·  JPG / PNG / BMP / GIF / TIFF",subtitle,muted,new RectangleF(0,Height/2,Width,80),sf);
             } return;
         }
-        float w=(float)(Image.Width*ViewScale),h=(float)(Image.Height*ViewScale);
-        var r=new RectangleF((Width-w)/2+Pan.X,(Height-h)/2+Pan.Y,w,h);
-        e.Graphics.InterpolationMode=ViewScale>=4?InterpolationMode.NearestNeighbor:InterpolationMode.HighQualityBicubic;
-        e.Graphics.PixelOffsetMode=PixelOffsetMode.HighQuality;
-        using(var tile=new Bitmap(CheckerSize*2,CheckerSize*2)) { using(var g=Graphics.FromImage(tile)) { g.Clear(BackgroundOne); if(Checker) using(var b=new SolidBrush(BackgroundTwo)) {g.FillRectangle(b,CheckerSize,0,CheckerSize,CheckerSize);g.FillRectangle(b,0,CheckerSize,CheckerSize,CheckerSize);} } using(var b=new TextureBrush(tile)) e.Graphics.FillRectangle(b,r); }
-        var imageState=e.Graphics.Save();
-        if(FlipHorizontal||FlipVertical){e.Graphics.TranslateTransform(r.X+r.Width/2,r.Y+r.Height/2);e.Graphics.ScaleTransform(FlipHorizontal?-1:1,FlipVertical?-1:1);e.Graphics.TranslateTransform(-r.X-r.Width/2,-r.Y-r.Height/2);}
-        e.Graphics.DrawImage(Image,r);e.Graphics.Restore(imageState);
+        float scale=(float)ViewScale;
+        var r=ImageBounds(scale);
+        DrawVisibleImage(e,r,scale);
         if(ShowDetails && !String.IsNullOrEmpty(DetailsText)) {
             using(var font=new Font("Malgun Gothic",11,FontStyle.Regular))
             using(var bg=new SolidBrush(Color.FromArgb(195,15,17,20))) {
@@ -197,8 +280,8 @@ partial class Viewer : Form {
     void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}if(album.Files.Length>0)Select(album.Index+delta);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
-    void Rotate(bool clockwise){if(busy || album.Image==null)return;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);canvas.Reset();}
-    void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.Invalidate();canvas.Focus();}
+    void Rotate(bool clockwise){if(busy || album.Image==null)return;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);canvas.InvalidateGpuImage();canvas.Reset();}
+    void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.InvalidateGpuImage();canvas.Invalidate();canvas.Focus();}
     void ToggleSlide(){if(!full){if(fileList.SelectedItems.Count>0){startSlideAfterLoad=true;OpenSelectedFullscreen();}return;}if(slide.Enabled){StopSlide();return;}if(album.Files.Length==0){Choose();if(album.Files.Length==0)return;}slide.Start();play.Text=Ui.T("Ⅱ 일시정지");UpdateInfo();}
     void StopSlide(){slide.Stop();if(play!=null)play.Text=Ui.T("▶ 슬라이드쇼");UpdateInfo();}
     void UpdateInfo(){RefreshDetails();if(!full){UpdateBrowserInfo();return;}info.Text=album.Image==null?Ui.T("준비  ·  원본 파일을 변경하지 않습니다"):String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,Path.GetFileName(album.Current),album.Image.Width,album.Image.Height,canvas.ViewScale*100,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}

@@ -26,10 +26,9 @@ partial class Viewer {
     int folderVersion;
     void SetupWorkspace() {
         split.Dock=DockStyle.Fill;split.Size=new Size(1100,600);split.SplitterDistance=265;split.Panel1MinSize=160;split.Panel2MinSize=300;split.BackColor=Color.FromArgb(58,62,68);
-        var addressBar=new SettingsStack{Dock=DockStyle.Top,Padding=new Padding(18,14,18,14),Margin=Padding.Empty};
-        var heading=new TableLayoutPanel{ColumnCount=2,AutoSize=true,Margin=new Padding(0,0,0,12)};
+        var addressBar=new SettingsStack{Dock=DockStyle.Top,Padding=new Padding(18,8,18,8),Margin=Padding.Empty};
+        var heading=new TableLayoutPanel{ColumnCount=2,AutoSize=true,Margin=new Padding(0,0,0,6)};
         heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));heading.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var brand=new SettingsStack{Margin=Padding.Empty};brand.Controls.Add(ModernUi.Text("LumaView",false,17,true));brand.Controls.Add(ModernUi.Text(ComponentSetup.Say("이미지 · 시퀀스 · 영상 · 3D","Images · Sequences · Video · 3D"),true,9));heading.Controls.Add(brand,0,0);
         var grouping=new ModernButton{Text=Ui.T("SQ 묶기"),Selected=true};
         var refresh=new ModernButton{Text=Ui.T("새로고침")};
         var settings=new ModernButton{Text=Ui.T("설정")};settings.Click+=delegate{ShowSettings();};

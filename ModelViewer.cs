@@ -142,7 +142,7 @@ sealed class ModelViewer:Form {
             }else if(message=="exit"){Close();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}
             else if(message.StartsWith("renderPanel:")){effectsPanelOpen=message.EndsWith(":on");}
-            else if(message.StartsWith("renderBase:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(11));foreach(var name in new[]{"ssao","flat"})visualButtons[name].Checked=Convert.ToBoolean(data[name]);}
+            else if(message.StartsWith("renderBase:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(11));foreach(var name in new[]{"ssao","flat","textures"})if(data.ContainsKey(name))visualButtons[name].Checked=Convert.ToBoolean(data[name]);}
             else if(message.StartsWith("lightMode:")){lightMode=message.EndsWith(":on");lightButton.Checked=lightMode;status.Text=lightMode?Ui.T("빈 공간을 클릭해 라이트를 배치하세요. Esc: 취소"):Ui.T("라이트 클릭: 선택·이동 · 더블클릭: 색상·강도 · L: 추가");}
             else if(message.StartsWith("lightSelected:")){lightSelected=message!="lightSelected:-1";lightSettingsButton.Enabled=lightSelected;if(lightSelected)status.Text=Ui.T("축 드래그: 라이트 이동 · 더블클릭/라이트 설정: 색상·강도 · Esc: 선택 해제");}
             else if(message.StartsWith("editLight:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(10));int id=Convert.ToInt32(data["id"]);string color=(string)data["color"];decimal strength=Convert.ToDecimal(data["strength"]);BeginInvoke((Action)delegate{EditLight(id,color,strength);});}
