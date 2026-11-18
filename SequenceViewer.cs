@@ -44,6 +44,11 @@ sealed class SequenceViewer : Form {
     readonly Dictionary<int,Bitmap> cache=new Dictionary<int,Bitmap>();
     FullscreenChrome chrome;
     ToolStripButton play;
+    readonly ToolStripButton modeButton;
+    bool fullscreen;
+    Rectangle windowBounds;
+    FormWindowState windowState;
+    int topInset;
     int requested,displayed=-1,anchorFrame;
     double fps=24,anchorTime;
     bool waitingForStart=true,endedPlayback;
@@ -52,8 +57,11 @@ sealed class SequenceViewer : Form {
     long bytes;
     const long Budget=256L*1024*1024;
     public SequenceViewer(string[] files,Rectangle bounds,int startIndex=0){
-        frames=files;Text=AppUpdater.WindowTitle(Ui.T("LumaView 시퀀스").Replace("LumaView ",""));Font=new Font("Malgun Gothic",9);BackColor=Color.Black;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
-        Add(Ui.T("목록으로 (Esc)"),Close);play=Add(Ui.T("Ⅱ 일시정지"),Toggle);
+        frames=files;Text=AppUpdater.WindowTitle(Path.GetFileName(files[startIndex]));Font=new Font("Malgun Gothic",9);BackColor=Color.Black;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
+        Add(Ui.T("목록으로 (Esc)"),Close);
+        modeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
+        modeButton.ToolTipText="Alt+Enter";
+        play=Add(Ui.T("Ⅱ 일시정지"),Toggle);
         Add(Ui.T("−5초"),delegate{Jump(-(int)Math.Round(5*fps));});Add(Ui.T("+5초"),delegate{Jump((int)Math.Round(5*fps));});Add(Ui.T("처음으로"),delegate{Request(0);});
         Add(Ui.T("◀ 프레임 (D)"),delegate{Step(-1);});Add(Ui.T("프레임 ▶ (F)"),delegate{Step(1);});
         tools.Items.Add(new ToolStripLabel(Ui.T("재생 FPS")));rate.AccessibleName=Ui.T("재생 FPS");rate.ValueChanged+=delegate{ChangeRate((double)rate.Value);};tools.Items.Add(new ToolStripControlHost(rate));
@@ -62,13 +70,43 @@ sealed class SequenceViewer : Form {
         Add(Ui.T("화면 맞춤"),delegate{view.Fit=true;view.Reset();});Add(Ui.T("상세 정보"),delegate{view.ShowDetails=!view.ShowDetails;view.Invalidate();});
         var frameToggle=Add(Ui.T("프레임 번호"),delegate{});frameToggle.CheckOnClick=true;frameToggle.CheckedChanged+=delegate{frameNumber.Visible=frameToggle.Checked;};
         frameNumber.Font=new Font("Consolas",14,FontStyle.Bold);view.Controls.Add(frameNumber);
-        tools.SizeChanged+=delegate{frameNumber.Location=new Point(16,32+tools.Height+12);};frameNumber.Location=new Point(16,32+tools.Height+12);
+        view.SizeChanged+=delegate{PlaceFrameNumber();};
+        frameNumber.SizeChanged+=delegate{PlaceFrameNumber();};
+        PlaceFrameNumber();
         var bottom=new Panel{Height=56,Padding=new Padding(8),BackColor=Color.FromArgb(28,31,37)};bottom.Controls.Add(seek);bottom.Controls.Add(status);seek.Maximum=Math.Max(1,frames.Length-1);
         seek.MouseDown+=delegate{dragging=true;};seek.MouseUp+=delegate{dragging=false;playing=false;UpdatePlay();Request(seek.Value);};seek.Scroll+=delegate{playing=false;UpdatePlay();Request(seek.Value);};
         Controls.Add(view);chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var message=new Message();return ProcessCmdKey(ref message,key);});
+        chrome.TopInsetChanged+=inset=>{topInset=inset;view.SetDetailsTopInset(inset);PlaceFrameNumber();};
+        bottom.SizeChanged+=delegate{status.Width=Math.Min(470,bottom.ClientSize.Width/2);};
+        DockWindowControls();
+        HandleCreated+=delegate{ModernUi.TitleBar(this);};
         timer.Tick+=delegate{TickPlayback();};
-        Shown+=delegate{Bounds=bounds;chrome.Enable();Request(startIndex);timer.Start();};
+        Shown+=delegate{Request(startIndex);view.Focus();timer.Start();};
         FormClosed+=delegate{closed=true;timer.Dispose();chrome.Dispose();view.Image=null;foreach(var bitmap in cache.Values)bitmap.Dispose();cache.Clear();};
+    }
+    void PlaceFrameNumber(){frameNumber.Location=new Point(Math.Max(8,view.ClientSize.Width-frameNumber.Width-16),topInset+12);}
+    void DockWindowControls(){
+        chrome.DockToolbarInOwner();
+        view.BringToFront();
+    }
+    void ToggleFullscreen(){
+        fullscreen=!fullscreen;
+        if(fullscreen){
+            var screen=Screen.FromControl(this).Bounds;
+            windowState=WindowState;
+            windowBounds=windowState==FormWindowState.Normal?Bounds:RestoreBounds;
+            WindowState=FormWindowState.Normal;
+            FormBorderStyle=FormBorderStyle.None;
+            Bounds=screen;
+            chrome.Enable();
+        }else{
+            DockWindowControls();
+            FormBorderStyle=FormBorderStyle.Sizable;
+            Bounds=windowBounds;
+            WindowState=windowState;
+        }
+        modeButton.Text=fullscreen?ComponentSetup.Say("창 모드","Windowed mode"):ComponentSetup.Say("전체화면","Fullscreen");
+        view.Focus();
     }
     ToolStripButton Add(string label,Action action){var b=new ToolStripButton(label){Padding=new Padding(4,3,4,3)};b.Click+=delegate{action();};tools.Items.Add(b);return b;}
     void UpdatePlay(){play.Text=playing?Ui.T("Ⅱ 일시정지"):Ui.T("▶ 재생");}
@@ -180,7 +218,7 @@ sealed class SequenceViewer : Form {
         }finally{decoding.Remove(target);if(!closed)Pump();}
     }
     readonly HashSet<int> failed=new HashSet<int>();
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(rate.ContainsFocus&&key!=Keys.Escape&&key!=Keys.F11){if(key==Keys.Enter){view.Focus();return true;}return base.ProcessCmdKey(ref msg,key);}switch(key){case Keys.Escape:case Keys.F11:Close();return true;case Keys.Space:Toggle();return true;case Keys.D:Step(-1);return true;case Keys.F:Step(1);return true;case Keys.Left:Jump(-(int)Math.Round(5*fps));return true;case Keys.Right:Jump((int)Math.Round(5*fps));return true;case Keys.Home:Request(0);return true;case Keys.End:Request(frames.Length-1);return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(key==(Keys.Alt|Keys.Enter)){ToggleFullscreen();return true;}if(key==Keys.Escape){if(fullscreen)ToggleFullscreen();else Close();return true;}if(rate.ContainsFocus){if(key==Keys.Enter){view.Focus();return true;}return base.ProcessCmdKey(ref msg,key);}switch(key){case Keys.Space:Toggle();return true;case Keys.D:Step(-1);return true;case Keys.F:Step(1);return true;case Keys.Left:Jump(-(int)Math.Round(5*fps));return true;case Keys.Right:Jump((int)Math.Round(5*fps));return true;case Keys.Home:Request(0);return true;case Keys.End:Request(frames.Length-1);return true;}return base.ProcessCmdKey(ref msg,key);}
 }
 }
 

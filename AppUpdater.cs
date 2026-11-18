@@ -19,7 +19,7 @@ static class AppUpdater {
     const long MaxPackageBytes=200L*1024*1024;
     public sealed class Asset { public string name{get;set;} public string browser_download_url{get;set;} public long size{get;set;} }
     public sealed class Release { public string tag_name{get;set;} public bool draft{get;set;} public bool prerelease{get;set;} public Asset[] assets{get;set;} }
-    public sealed class Update { public Version Version; public string Tag; public Asset Package,Checksums; }
+    public sealed class Update { public Version Version; public string Tag; public Asset Package,Checksums; public string ExpectedDigest; }
     static string Say(string ko,string en){return Ui.Language=="en"?en:ko;}
     internal static Version CurrentVersion { get {var v=Assembly.GetExecutingAssembly().GetName().Version;return new Version(v.Major,v.Minor,v.Build);}}
     internal static string AppTitle { get {return "DollView v"+CurrentVersion;} }
@@ -60,8 +60,36 @@ static class AppUpdater {
         return matches[0].Groups[1].Value.ToLowerInvariant();
     }
     internal static bool VerifyHash(string path,string expected){using(var stream=File.OpenRead(path))using(var hash=SHA256.Create())return String.Equals(BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", ""),expected,StringComparison.OrdinalIgnoreCase);}
-    static async Task<string> ReadSmall(HttpClient client,string url,int limit,CancellationToken token){
+    internal static async Task<Version> ReadPublicVersion(HttpClient client,CancellationToken token){
+        string prefix="https://github.com/"+Repository+"/releases/tag/v";
+        using(var response=await client.GetAsync("https://github.com/"+Repository+"/releases/latest",HttpCompletionOption.ResponseHeadersRead,token)){
+            response.EnsureSuccessStatusCode();
+            string resolved=response.RequestMessage.RequestUri.AbsoluteUri;
+            Version version;
+            if(!resolved.StartsWith(prefix,StringComparison.Ordinal)||
+                !Regex.IsMatch(resolved.Substring(prefix.Length),@"^\d+\.\d+\.\d+$")||
+                !Version.TryParse(resolved.Substring(prefix.Length),out version))
+                throw new InvalidDataException("Unexpected GitHub release address.");
+            return version;
+        }
+    }
+    internal static async Task<Update> ReadPublicUpdate(HttpClient client,Version version,CancellationToken token){
+        string tag="v"+version;
+        string root="https://github.com/"+Repository+"/releases/download/"+tag+"/";
+        string checksum="DollView-SHA256SUMS.txt";
+        string sums=await ReadSmall(client,root+checksum,65536,token,true);
+        string package="DollView-"+version+"-win-x64.zip";
+        if(sums==null){
+            checksum="SHA256SUMS.txt";
+            package="LumaView-"+version+"-win-x64.zip";
+            sums=await ReadSmall(client,root+checksum,65536,token);
+        }
+        return new Update{Version=version,Tag=tag,Package=new Asset{name=package,browser_download_url=root+package},
+            Checksums=new Asset{name=checksum,browser_download_url=root+checksum},ExpectedDigest=ExpectedHash(sums,package)};
+    }
+    static async Task<string> ReadSmall(HttpClient client,string url,int limit,CancellationToken token,bool allowNotFound=false){
         using(var response=await client.GetAsync(url,HttpCompletionOption.ResponseHeadersRead,token)){
+            if(allowNotFound&&response.StatusCode==HttpStatusCode.NotFound)return null;
             response.EnsureSuccessStatusCode();using(var input=await response.Content.ReadAsStreamAsync())using(var memory=new MemoryStream()){
                 var buffer=new byte[8192];int count;while((count=await input.ReadAsync(buffer,0,buffer.Length,token))>0){if(memory.Length+count>limit)throw new InvalidDataException("Response too large.");memory.Write(buffer,0,count);}
                 return System.Text.Encoding.UTF8.GetString(memory.ToArray());
@@ -70,10 +98,13 @@ static class AppUpdater {
     }
     static async Task Download(HttpClient client,Asset asset,string path,Action<int> progress,CancellationToken token){
         using(var response=await client.GetAsync(asset.browser_download_url,HttpCompletionOption.ResponseHeadersRead,token)){
-            response.EnsureSuccessStatusCode();long total=0;using(var input=await response.Content.ReadAsStreamAsync())using(var output=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536,true)){
-                var buffer=new byte[65536];int count;while((count=await input.ReadAsync(buffer,0,buffer.Length,token))>0){total+=count;if(total>asset.size||total>MaxPackageBytes)throw new InvalidDataException("ZIP size mismatch.");await output.WriteAsync(buffer,0,count,token);progress((int)(total*100/asset.size));}
+            response.EnsureSuccessStatusCode();
+            long length=asset.size>0?asset.size:response.Content.Headers.ContentLength??0;
+            if(length<0||length>MaxPackageBytes)throw new InvalidDataException("ZIP size is outside the supported range.");
+            long total=0;using(var input=await response.Content.ReadAsStreamAsync())using(var output=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536,true)){
+                var buffer=new byte[65536];int count;while((count=await input.ReadAsync(buffer,0,buffer.Length,token))>0){total+=count;if((length>0&&total>length)||total>MaxPackageBytes)throw new InvalidDataException("ZIP size mismatch.");await output.WriteAsync(buffer,0,count,token);if(length>0)progress((int)(total*100/length));}
             }
-            if(total!=asset.size)throw new InvalidDataException("Incomplete ZIP download.");
+            if(total==0||(length>0&&total!=length))throw new InvalidDataException("Incomplete ZIP download.");
         }
     }
     static async Task LaunchInstaller(Form owner,string folder,Version latest,UpdateFile[] files,CancellationToken token){
@@ -109,20 +140,26 @@ static class AppUpdater {
                     client.DefaultRequestHeaders.UserAgent.ParseAdd("LumaView/"+CurrentVersion);
                     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
                     client.DefaultRequestHeaders.CacheControl=new System.Net.Http.Headers.CacheControlHeaderValue{NoCache=true};
-                    string releaseJson;
-                    using(var response=await client.GetAsync("https://api.github.com/repos/"+Repository+"/releases/latest",cancel.Token)){
+                    string releaseJson=null;
+                    using(var response=await client.GetAsync("https://api.github.com/repos/"+Repository+"/releases/latest",HttpCompletionOption.ResponseHeadersRead,cancel.Token)){
                         if(response.StatusCode==HttpStatusCode.NotFound){checkedRelease=true;MessageBox.Show(owner,VersionsText(current,null,true)+"\n\n"+NoUpdateStatus(current,null),caption);return;}
-                        response.EnsureSuccessStatusCode();if(response.Content.Headers.ContentLength>1048576)throw new InvalidDataException("Response too large.");releaseJson=await response.Content.ReadAsStringAsync();if(releaseJson.Length>1048576)throw new InvalidDataException("Response too large.");
+                        if(response.StatusCode!=HttpStatusCode.Forbidden&&(int)response.StatusCode!=429){
+                            response.EnsureSuccessStatusCode();
+                            if(response.Content.Headers.ContentLength>1048576)throw new InvalidDataException("Response too large.");
+                            releaseJson=await response.Content.ReadAsStringAsync();
+                            if(releaseJson.Length>1048576)throw new InvalidDataException("Response too large.");
+                        }
                     }
-                    latest=ReleaseVersion(releaseJson);checkedRelease=true;
+                    latest=releaseJson==null?await ReadPublicVersion(client,cancel.Token):ReleaseVersion(releaseJson);
+                    checkedRelease=true;
                     if(latest==null||latest<=current){MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+NoUpdateStatus(current,latest),caption,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
-                    var update=ParseRelease(releaseJson);
                     if(MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("새 버전으로 업데이트할까요?\n파일 검증 후 DollView를 종료하고 현재 폴더에 설치한 다음 자동으로 다시 실행합니다.\n설정은 유지됩니다.","Install the new version?\nAfter verification, DollView will close, update in its current folder, and reopen automatically.\nYour settings will be kept."),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
                     UpdateFiles.CheckWritable(Path.GetDirectoryName(Application.ExecutablePath));
-                    string sums=await ReadSmall(client,update.Checksums.browser_download_url,65536,cancel.Token);
-                    string expected=ExpectedHash(sums,update.Package.name);
+                    var update=releaseJson==null?await ReadPublicUpdate(client,latest,cancel.Token):ParseRelease(releaseJson);
+                    string expected=update.ExpectedDigest??ExpectedHash(await ReadSmall(client,update.Checksums.browser_download_url,65536,cancel.Token),update.Package.name);
                     string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LumaView","Updates",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
                     temporary=Path.Combine(folder,update.Package.name+".download");
+                    button.Text=Say("다운로드 중…","Downloading…");
                     await Download(client,update.Package,temporary,percent=>{if(!button.IsDisposed)button.Text=percent+"%";},cancel.Token);
                     if(!await Task.Run(()=>VerifyHash(temporary,expected)))throw new InvalidDataException(Say("다운로드 파일 검증에 실패했습니다. 다시 시도해 주세요.","Download verification failed. Please try again."));
                     cancel.Token.ThrowIfCancellationRequested();string packagePath=Path.Combine(folder,update.Package.name);File.Move(temporary,packagePath);temporary=null;
