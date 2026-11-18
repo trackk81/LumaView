@@ -24,6 +24,9 @@ sealed class GpuCanvas : IDisposable {
         public int Format, Alpha;
         public float DpiX,DpiY;
     }
+    [StructLayout(LayoutKind.Sequential)] struct BitmapBrushProperties {
+        public int ExtendX, ExtendY, Interpolation;
+    }
     [StructLayout(LayoutKind.Sequential)] struct Rect {
         public float Left,Top,Right,Bottom;
         public Rect(RectangleF r){Left=r.Left;Top=r.Top;Right=r.Right;Bottom=r.Bottom;}
@@ -41,6 +44,10 @@ sealed class GpuCanvas : IDisposable {
     delegate int CreateWindowTarget(IntPtr self,ref TargetProperties properties,ref WindowProperties window,out IntPtr target);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     delegate int CreateBitmap(IntPtr self,SizeU size,IntPtr data,uint stride,ref BitmapProperties properties,out IntPtr bitmap);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int CreateBitmapBrush(IntPtr self,IntPtr bitmap,ref BitmapBrushProperties options,IntPtr style,out IntPtr brush);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate void FillRectangle(IntPtr self,ref Rect destination,IntPtr brush);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     delegate uint MaximumBitmapSize(IntPtr self);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -71,10 +78,15 @@ sealed class GpuCanvas : IDisposable {
     }
     readonly List<Tile> tiles=new List<Tile>();
     IntPtr factory,target;
+    IntPtr backgroundBrush;
+    int backgroundCell;
+    Color backgroundOne,backgroundTwo;
     Size size;
     Bitmap source;
     int tileSize;
     CreateBitmap createBitmap;
+    CreateBitmapBrush createBitmapBrush;
+    FillRectangle fillRectangle;
     BeginDraw begin;
     EndDraw end;
     ClearTarget clear;
@@ -94,6 +106,8 @@ sealed class GpuCanvas : IDisposable {
         tileSize=(int)Math.Min(2048,Method<MaximumBitmapSize>(target,55)(target))-2;
         if(tileSize<=0)throw new NotSupportedException("Direct2D texture size is too small.");
         createBitmap=Method<CreateBitmap>(target,4);
+        createBitmapBrush=Method<CreateBitmapBrush>(target,7);
+        fillRectangle=Method<FillRectangle>(target,17);
         draw=Method<DrawBitmap>(target,26);
         push=Method<PushClip>(target,45);
         pop=Method<PopClip>(target,46);
@@ -108,8 +122,9 @@ sealed class GpuCanvas : IDisposable {
         tiles.Clear();
         source=null;
     }
-    void Upload(Bitmap image){
+    void Upload(Bitmap image,bool opaque){
         InvalidateImage();
+        var format=opaque?PixelFormat.Format32bppArgb:PixelFormat.Format32bppPArgb;
         for(int y=0;y<image.Height;y+=tileSize)
         for(int x=0;x<image.Width;x+=tileSize){
             var area=new Rectangle(x,y,Math.Min(tileSize,image.Width-x),Math.Min(tileSize,image.Height-y));
@@ -117,11 +132,10 @@ sealed class GpuCanvas : IDisposable {
             samples.Inflate(1,1);
             samples.Intersect(new Rectangle(0,0,image.Width,image.Height));
             using(var pixels=image.Clone(samples,PixelFormat.Format32bppArgb)){
-                var data=pixels.LockBits(new Rectangle(Point.Empty,pixels.Size),ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+                var data=pixels.LockBits(new Rectangle(Point.Empty,pixels.Size),ImageLockMode.ReadOnly,format);
                 try{
                     if(data.Stride<=0)throw new NotSupportedException("Unexpected bitmap stride.");
-                    // BGRA8, ignore alpha. The caller only sends opaque photographs.
-                    var properties=new BitmapProperties{Format=87,Alpha=3,DpiX=96,DpiY=96};
+                    var properties=new BitmapProperties{Format=87,Alpha=opaque?3:1,DpiX=96,DpiY=96};
                     var tile=new Tile{Area=area,Samples=samples};
                     int result=createBitmap(target,new SizeU(samples.Width,samples.Height),data.Scan0,(uint)data.Stride,ref properties,out tile.Texture);
                     if(result<0){Release(ref tile.Texture);Check(result);}
@@ -131,21 +145,45 @@ sealed class GpuCanvas : IDisposable {
         }
         source=image;
     }
+    void PrepareBackground(int cell,Color first,Color second){
+        if(backgroundBrush!=IntPtr.Zero&&cell==backgroundCell&&first==backgroundOne&&second==backgroundTwo)return;
+        Release(ref backgroundBrush);
+        int side=cell*2;
+        var pixels=new int[side*side];
+        for(int y=0;y<side;y++)
+            for(int x=0;x<side;x++)
+                pixels[y*side+x]=((x<cell)==(y<cell)?first:second).ToArgb();
+        var pinned=GCHandle.Alloc(pixels,GCHandleType.Pinned);
+        IntPtr bitmap=IntPtr.Zero;
+        try{
+            var properties=new BitmapProperties{Format=87,Alpha=3,DpiX=96,DpiY=96};
+            Check(createBitmap(target,new SizeU(side,side),pinned.AddrOfPinnedObject(),(uint)(side*4),ref properties,out bitmap));
+            var options=new BitmapBrushProperties{ExtendX=1,ExtendY=1,Interpolation=0};
+            Check(createBitmapBrush(target,bitmap,ref options,IntPtr.Zero,out backgroundBrush));
+            backgroundCell=cell;backgroundOne=first;backgroundTwo=second;
+        }finally{Release(ref bitmap);pinned.Free();}
+    }
     static RectangleF Project(Rectangle rectangle,RectangleF bounds,float scale){
         return new RectangleF(bounds.X+rectangle.X*scale,bounds.Y+rectangle.Y*scale,rectangle.Width*scale,rectangle.Height*scale);
     }
-    public bool Render(IntPtr window,Size viewport,Bitmap image,RectangleF bounds,float scale,Color background){
+    public bool Render(IntPtr window,Size viewport,Bitmap image,RectangleF bounds,float scale,Color background,
+        bool opaque,int checkerSize,Color first,Color second){
         if(target==IntPtr.Zero)Open(window,viewport);
         if(viewport!=size){
             var dimensions=new SizeU(viewport.Width,viewport.Height);
             Check(resize(target,ref dimensions));
             size=viewport;
         }
-        if(!ReferenceEquals(source,image))Upload(image);
+        if(!ReferenceEquals(source,image))Upload(image,opaque);
+        if(!opaque)PrepareBackground(checkerSize,first,second);
         var screen=new RectangleF(PointF.Empty,viewport);
         begin(target);
         var color=new Rgba(background);
         clear(target,ref color);
+        if(!opaque){
+            var backing=new Rect(bounds);
+            fillRectangle(target,ref backing,backgroundBrush);
+        }
         foreach(var tile in tiles){
             var area=Project(tile.Area,bounds,scale);
             if(!area.IntersectsWith(screen))continue;
@@ -162,6 +200,7 @@ sealed class GpuCanvas : IDisposable {
     }
     public void Dispose(){
         InvalidateImage();
+        Release(ref backgroundBrush);
         Release(ref target);
         Release(ref factory);
     }

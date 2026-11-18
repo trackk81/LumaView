@@ -30,7 +30,7 @@ class NaturalSort : System.Collections.Generic.IComparer<string> {
     public int Compare(string a, string b) { return StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b)); }
 }
 class Album : IDisposable {
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object> OpaquePhotos =
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object> OpaqueImages =
         new System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object>();
     public string[] Files = new string[0];
     public int Index = -1;
@@ -51,7 +51,9 @@ class Album : IDisposable {
                     if (orientation >= 1 && orientation <= 8) bitmap.RotateFlip(transforms[orientation]);
                 }
             } catch (ArgumentException) { }
-            if(image.RawFormat.Guid==ImageFormat.Jpeg.Guid)OpaquePhotos.Add(bitmap,new object());
+            if(image.RawFormat.Guid==ImageFormat.Jpeg.Guid||image.PixelFormat==PixelFormat.Format24bppRgb||
+                image.PixelFormat==PixelFormat.Format32bppRgb||image.PixelFormat==PixelFormat.Format48bppRgb)
+                OpaqueImages.Add(bitmap,new object());
             return bitmap;
         }
     }
@@ -95,12 +97,14 @@ class Canvas : Control {
     protected override void WndProc(ref Message message){
         object marker;
         if(message.Msg==0x000F && message.WParam==IntPtr.Zero && Visible && Image!=null &&
-            Width>0 && Height>0 && !gpuUnavailable && !ShowDetails && !FlipHorizontal && !FlipVertical &&
-            Album.OpaquePhotos.TryGetValue(Image,out marker)){
+            Width>0 && Height>0 && !gpuUnavailable && !ShowDetails && !FlipHorizontal && !FlipVertical){
             try{
                 if(gpu==null)gpu=new GpuCanvas();
                 float scale=(float)ViewScale;
-                if(gpu.Render(Handle,ClientSize,Image,ImageBounds(scale),scale,BackColor)){
+                bool opaque=Album.OpaqueImages.TryGetValue(Image,out marker)||
+                    (!System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat)&&(Image.PixelFormat&PixelFormat.Indexed)==0);
+                if(gpu.Render(Handle,ClientSize,Image,ImageBounds(scale),scale,BackColor,
+                    opaque,CheckerSize,BackgroundOne,Checker?BackgroundTwo:BackgroundOne)){
                     ValidateRect(Handle,IntPtr.Zero);
                     message.Result=IntPtr.Zero;
                     return;
@@ -141,7 +145,6 @@ class Canvas : Control {
         MouseDown += delegate(object s,MouseEventArgs e) { if(e.Button==MouseButtons.Left) { last=e.Location; Capture=true; Cursor=Cursors.Hand; Focus(); } };
         MouseUp += delegate { Capture=false; Cursor=Cursors.Default; };
         MouseMove += delegate(object s,MouseEventArgs e) { if(Capture && Image!=null && e.Location!=last) { Pan=new PointF(Pan.X+e.X-last.X,Pan.Y+e.Y-last.Y); last=e.Location; Invalidate(); } };
-        MouseWheel += delegate(object s,MouseEventArgs e) { ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location); };
     }
     public double ViewScale { get { return Image==null?1:Fit?Math.Min((double)Math.Max(1,Width-32)/Image.Width,(double)Math.Max(1,Height-32)/Image.Height):Zoom; } }
     public void Reset() { Pan=PointF.Empty; Invalidate(); if(Changed!=null) Changed(); }
@@ -263,6 +266,11 @@ partial class Viewer : Form {
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
         SetupWorkspace(); toolbar.Dock=DockStyle.Top; Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
         canvas.Changed+=UpdateInfo; canvas.DoubleClick+=delegate{Fullscreen();};
+        canvas.MouseWheel+=delegate(object sender,MouseEventArgs e){
+            if(!full||e.Delta==0)return;
+            if((ModifierKeys&Keys.Control)!=0)canvas.ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location);
+            else Navigate(e.Delta<0?1:-1);
+        };
         slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
@@ -289,7 +297,7 @@ partial class Viewer : Form {
     void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitImageView();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(OpenSequence(path))return;if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}if(!full)enterAfterLoad=true;LoadAsync(path,-1);}
     void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
     void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
-    void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}if(album.Files.Length>0)Select(album.Index+delta);}
+    void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
     void Rotate(bool clockwise){if(busy || album.Image==null)return;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);canvas.InvalidateGpuImage();canvas.Reset();}
     void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.InvalidateGpuImage();canvas.Invalidate();canvas.Focus();}
