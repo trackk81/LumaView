@@ -17,6 +17,20 @@ static class FileAssociations {
     public static string CurrentApp(string extension){uint length=512;var text=new StringBuilder((int)length);return AssocQueryString(0,4,extension,null,text,ref length)==0?text.ToString():Ui.T("확인 불가");}
     public static bool Registered(string extension){using(var key=Registry.CurrentUser.OpenSubKey(Capabilities+@"\FileAssociations"))return key!=null&&key.GetValue(extension)!=null;}
     public static string OpenCommand(string executable){return "\""+executable+"\" \"%1\"";}
+    internal static void MigrateLegacyCommand(string previous,string current){
+        string oldCommand=OpenCommand(previous),newCommand=OpenCommand(current);
+        var classes=Extensions.Select(extension=>"LumaView.File"+extension)
+            .Concat(new[]{@"Applications\LumaView.exe"});
+        bool changed=false;
+        foreach(string name in classes){
+            using(var key=Registry.CurrentUser.OpenSubKey(@"Software\Classes\"+name+@"\shell\open\command",true)){
+                if(key==null||!String.Equals(key.GetValue("") as string,oldCommand,StringComparison.OrdinalIgnoreCase))continue;
+                key.SetValue("",newCommand);
+                changed=true;
+            }
+        }
+        if(changed)SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);
+    }
     public static void Register(string[] extensions){
         if(extensions.Length==0)throw new InvalidOperationException(Ui.T("확장자를 선택해 주세요."));
         if(extensions.Any(e=>!Extensions.Contains(e)))throw new ArgumentException("extension");

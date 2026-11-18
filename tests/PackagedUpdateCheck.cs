@@ -21,6 +21,7 @@ class PackagedUpdateCheck {
    var version=FileVersionInfo.GetVersionInfo(renamed);
    if(version.ProductName!="DollView"||version.FileVersion!=args[3]+".0")throw new Exception("Renamed executable version mismatch");
    if(!Process.GetProcessesByName("DollView").Any(p=>{using(p){try{return String.Equals(p.MainModule.FileName,renamed,StringComparison.OrdinalIgnoreCase);}catch(System.ComponentModel.Win32Exception){return false;}catch(InvalidOperationException){return false;}}}))throw new Exception("DollView process did not start");
+   Wait(()=>!File.Exists(Path.Combine(target,"LumaView.exe"))&&!File.Exists(Path.Combine(target,"LumaView.Updater.exe")),"Legacy executables were not removed after migration");
    Console.WriteLine("PASS legacy updater: "+previous+" -> "+args[3]+" in the same directory, DollView.exe launched and acknowledged");Console.WriteLine(result);
   }
   return 0;

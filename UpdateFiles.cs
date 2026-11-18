@@ -86,6 +86,37 @@ static class UpdateFiles {
     }
     internal const string Executable="DollView.exe";
     internal const string LegacyExecutable="LumaView.exe";
+    internal static void RemoveLegacyLaunchers(string runningPath,Action<string,string> migrateCommand){
+        if(!String.Equals(Path.GetFileName(runningPath),Executable,StringComparison.OrdinalIgnoreCase))return;
+        string root=Path.GetDirectoryName(runningPath);
+        var oldApp=Inside(root,LegacyExecutable);
+        var oldWorker=Inside(root,"LumaView.Updater.exe");
+        if(!File.Exists(oldApp)&&!File.Exists(oldWorker))return;
+        try{
+            using(var mutex=new Mutex(false,LockName(root))){
+                bool held;
+                try{held=mutex.WaitOne(TimeSpan.FromSeconds(20));}
+                catch(AbandonedMutexException){held=true;}
+                if(!held)return;
+                try{
+                    NoLinks(runningPath);
+                    var current=FileVersionInfo.GetVersionInfo(runningPath);
+                    if(current.ProductName!="DollView")return;
+                    foreach(string path in new[]{oldApp,oldWorker}){
+                        if(!File.Exists(path))continue;
+                        NoLinks(path);
+                        var old=FileVersionInfo.GetVersionInfo(path);
+                        if(old.ProductName!="LumaView"&&old.ProductName!="DollView")continue;
+                        Version oldVersion,currentVersion;
+                        if(!Version.TryParse(old.FileVersion,out oldVersion)||
+                           !Version.TryParse(current.FileVersion,out currentVersion)||oldVersion>currentVersion)continue;
+                        if(path==oldApp)migrateCommand(oldApp,runningPath);
+                        Retry(()=>File.Delete(path));
+                    }
+                }finally{mutex.ReleaseMutex();}
+            }
+        }catch(IOException){}catch(UnauthorizedAccessException){}catch(System.Security.SecurityException){}
+    }
     internal static string InstalledExecutable(string root){
         return File.Exists(Inside(root,Executable))?Executable:LegacyExecutable;
     }
