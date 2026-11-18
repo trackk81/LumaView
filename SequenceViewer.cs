@@ -75,6 +75,9 @@ sealed class SequenceViewer : Form {
         PlaceFrameNumber();
         var bottom=new Panel{Height=56,Padding=new Padding(8),BackColor=Color.FromArgb(28,31,37)};bottom.Controls.Add(seek);bottom.Controls.Add(status);seek.Maximum=Math.Max(1,frames.Length-1);
         seek.MouseDown+=delegate{dragging=true;};seek.MouseUp+=delegate{dragging=false;playing=false;UpdatePlay();Request(seek.Value);};seek.Scroll+=delegate{playing=false;UpdatePlay();Request(seek.Value);};
+        view.MouseWheel+=delegate(object sender,MouseEventArgs e){
+            if(e.Delta!=0)Step(e.Delta<0?1:-1);
+        };
         Controls.Add(view);chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var message=new Message();return ProcessCmdKey(ref message,key);});
         chrome.TopInsetChanged+=inset=>{topInset=inset;view.SetDetailsTopInset(inset);PlaceFrameNumber();};
         bottom.SizeChanged+=delegate{status.Width=Math.Min(470,bottom.ClientSize.Width/2);};
