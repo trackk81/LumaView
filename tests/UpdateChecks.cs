@@ -7,9 +7,9 @@ class UpdateChecks {
  static void Put(string path,string text){Directory.CreateDirectory(Path.GetDirectoryName(path));UpdateFiles.Retry(()=>File.WriteAllText(path,text));}
  static UpdateJob Prepare(bool fail){
   string target=Fresh("app with spaces 한글"),work=Fresh("update cache 한글"),payload=Path.Combine(work,"payload-source");Directory.CreateDirectory(payload);
-  File.Copy(Path.Combine(fixtures,"old.exe"),Path.Combine(target,"LumaView.exe"));Put(Path.Combine(target,"VERSION"),"1.0.0");Put(Path.Combine(target,"README.md"),"old readme");Put(Path.Combine(target,"user data","keep.txt"),"untouched");
-  File.Copy(Path.Combine(fixtures,fail?"fail.exe":"new.exe"),Path.Combine(payload,"LumaView.exe"));
-  foreach(string name in new[]{"LumaView.Updater.exe","Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","video-runtime/mpv.exe","codecs/magick.exe","model-viewer/index.html","README.md","new-component.txt"})Put(Path.Combine(payload,name),"new "+name);
+  File.Copy(Path.Combine(fixtures,"old.exe"),Path.Combine(target,"DollView.exe"));Put(Path.Combine(target,"VERSION"),"1.0.0");Put(Path.Combine(target,"README.md"),"old readme");Put(Path.Combine(target,"user data","keep.txt"),"untouched");
+  File.Copy(Path.Combine(fixtures,fail?"fail.exe":"new.exe"),Path.Combine(payload,"DollView.exe"));
+  foreach(string name in new[]{"DollView.Updater.exe","Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","video-runtime/mpv.exe","codecs/magick.exe","model-viewer/index.html","README.md","new-component.txt"})Put(Path.Combine(payload,name),"new "+name);
   Put(Path.Combine(payload,"VERSION"),"1.0.1");string zip=Path.Combine(work,"update.zip");ZipFile.CreateFromDirectory(payload,zip);
   var files=UpdateFiles.Extract(zip,Path.Combine(work,"payload"),"1.0.1");
   var job=new UpdateJob{Id=Guid.NewGuid().ToString("N"),TargetRoot=target,WorkRoot=work,FromVersion="1.0.0",ToVersion="1.0.1",Language="en",RestartPath=Path.Combine(target,"user data"),Files=files};UpdateFiles.ValidateJob(job);return job;
@@ -36,7 +36,7 @@ class UpdateChecks {
   var job=Prepare(false);var transaction=new UpdateTransaction(job);transaction.Backup();transaction.Install(name=>{});
   Check(job.Files.All(f=>UpdateFiles.Hash(UpdateFiles.Inside(job.TargetRoot,f.Name))==f.Hash),"replace all application files in the same directory");Check(File.ReadAllText(Path.Combine(job.TargetRoot,"user data","keep.txt"))=="untouched","preserve unrelated user files");
   var rollback=Prepare(false);var before=Snapshot(rollback.TargetRoot);var change=new UpdateTransaction(rollback);change.Backup();bool interrupted=false;
-  try{change.Install(name=>{if(name=="LumaView.exe")throw new IOException("injected failure before final executable");});}catch(IOException){interrupted=true;change.Rollback();}
+  try{change.Install(name=>{if(name=="DollView.exe")throw new IOException("injected failure before final executable");});}catch(IOException){interrupted=true;change.Rollback();}
   Check(interrupted&&Same(rollback.TargetRoot,before),"restore replaced files and remove new files after partial failure");
   var locked=Prepare(false);var original=Snapshot(locked.TargetRoot);var blocked=new UpdateTransaction(locked);blocked.Backup();bool failed=false;
   using(var file=new FileStream(Path.Combine(locked.TargetRoot,"VERSION"),FileMode.Open,FileAccess.Read,FileShare.Read)){
@@ -50,7 +50,7 @@ class UpdateChecks {
  [DllImport("user32.dll")]static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
  static void CloseTestWindows(int pid){EnumWindows((window,data)=>{uint owner;GetWindowThreadProcessId(window,out owner);if(owner==pid)PostMessage(window,0x10,IntPtr.Zero,IntPtr.Zero);return true;},IntPtr.Zero);}
  static void Worker(bool fail){
-  var job=Prepare(fail);UpdateFiles.SaveJob(job);string helper=Path.Combine(job.WorkRoot,"LumaView.Updater.exe");File.Copy(worker,helper);
+  var job=Prepare(fail);UpdateFiles.SaveJob(job);string helper=Path.Combine(job.WorkRoot,"DollView.Updater.exe");File.Copy(worker,helper);
   using(var process=Process.Start(new ProcessStartInfo(helper,UpdateFiles.Quote(Path.Combine(job.WorkRoot,"job.json"))){UseShellExecute=false,CreateNoWindow=true})){
    var watch=Stopwatch.StartNew();while(!process.HasExited&&watch.Elapsed<TimeSpan.FromSeconds(25)){
     if(fail&&File.Exists(Path.Combine(job.WorkRoot,"result.json")))CloseTestWindows(process.Id);Thread.Sleep(100);
@@ -58,7 +58,7 @@ class UpdateChecks {
    if(!process.HasExited){process.Kill();throw new Exception("Test worker timeout: "+job.WorkRoot);}
    string result=File.Exists(Path.Combine(job.WorkRoot,"result.json"))?File.ReadAllText(Path.Combine(job.WorkRoot,"result.json")):File.ReadAllText(Path.Combine(job.WorkRoot,"worker-error.txt"));
    Check(result.Contains(fail?"rolled_back":"success"),"worker "+(fail?"rolls back failed launch":"applies update and receives restart acknowledgement")+": "+result);
-   Check(FileVersionInfo.GetVersionInfo(Path.Combine(job.TargetRoot,"LumaView.exe")).FileVersion==(fail?"1.0.0.0":"1.0.1.0"),"worker leaves expected executable version");
+   Check(FileVersionInfo.GetVersionInfo(Path.Combine(job.TargetRoot,"DollView.exe")).FileVersion==(fail?"1.0.0.0":"1.0.1.0"),"worker leaves expected executable version");
    Check(File.Exists(Path.Combine(job.TargetRoot,fail?"old-restarted.txt":"new-started.txt")),"worker restarts "+(fail?"previous":"new")+" executable");
    Check(File.ReadAllText(Path.Combine(job.TargetRoot,"user data","keep.txt"))=="untouched","worker preserves user data");
   }

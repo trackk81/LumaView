@@ -86,10 +86,13 @@ static class MediaFiles {
 partial class Viewer {
     void OpenVideo(string path){
         StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;
-        if(full&&!startupOpening)ExitFullscreen();
+        if(full&&!startupOpening)ExitImageView();
         string dir=Path.GetDirectoryName(Path.GetFullPath(path));if(!String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
         foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals((string)item.Tag,path,StringComparison.OrdinalIgnoreCase);if(item.Selected)item.EnsureVisible();}
-        playbackActive=true;try{using(var player=new VideoViewer(path,Screen.FromControl(this).Bounds))player.ShowDialog(this);}finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitFullscreen();}}
+        var area=Screen.FromControl(this).WorkingArea;
+        var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
+        var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
+        playbackActive=true;try{using(var player=new VideoViewer(path,bounds))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitImageView();}}
         fileList.Focus();UpdateBrowserInfo();
     }
 }
@@ -104,6 +107,10 @@ sealed class VideoViewer : Form {
     readonly MpvPlayer player;
     Task startup;
     ToolStripButton play;
+    readonly ToolStripButton modeButton;
+    bool fullscreen;
+    Rectangle windowBounds;
+    FormWindowState windowState;
     bool ready,paused,ended,dragging,closing,navigating,resumeAfterScrub,flipHorizontal,flipVertical,muted;
     double position,duration,frameRate;
     double? pendingSeek,seekTarget;
@@ -112,17 +119,21 @@ sealed class VideoViewer : Form {
     string[] files;
     int index;
     public VideoViewer(string path,Rectangle bounds){
-        Text=AppUpdater.WindowTitle(Ui.T("LumaView 영상").Replace("LumaView ",""));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;
+        Text=AppUpdater.WindowTitle(Path.GetFileName(path));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;ImeMode=ImeMode.Disable;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;
         files=Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path))).Where(MediaFiles.IsVideo).OrderBy(p=>p,new NaturalSort()).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,Path.GetFullPath(path),StringComparison.OrdinalIgnoreCase));
         if(index<0){files=new[]{Path.GetFullPath(path)};index=0;}
         tools.GripStyle=ToolStripGripStyle.Hidden;tools.Padding=new Padding(10,8,10,8);
-        Button(Ui.T("목록으로 (Esc)"),delegate{Close();});Button(Ui.T("◀ 이전 영상"),delegate{Next(-1);});Button(Ui.T("다음 영상 ▶"),delegate{Next(1);});tools.Items.Add(new ToolStripSeparator());
+        Button(Ui.T("목록으로 (Esc)"),delegate{Close();});
+        modeButton=Button(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
+        modeButton.ToolTipText="Alt+Enter";
+        Button(Ui.T("◀ 이전 영상"),delegate{Next(-1);});Button(Ui.T("다음 영상 ▶"),delegate{Next(1);});tools.Items.Add(new ToolStripSeparator());
         play=Button(Ui.T("Ⅱ 일시정지"),Toggle);Button(Ui.T("−5초"),delegate{Seek(-5);});Button(Ui.T("+5초"),delegate{Seek(5);});Button(Ui.T("처음으로"),Restart);
         Button(Ui.T("◀ 프레임 (D)"),delegate{StepFrame(-1);});Button(Ui.T("프레임 ▶ (F)"),delegate{StepFrame(1);});
         var flip=new ToolStripDropDownButton(Ui.T("반전"));flip.DropDownItems.Add(Ui.T("좌우 반전"),null,delegate{flipHorizontal=!flipHorizontal;ApplyFlip();});flip.DropDownItems.Add(Ui.T("상하 반전"),null,delegate{flipVertical=!flipVertical;ApplyFlip();});tools.Items.Add(flip);
         var mute=Button(Ui.T("음소거"),delegate{muted=!muted;Send("set_property","mute",muted);});mute.CheckOnClick=true;
         tools.Items.Add(new ToolStripLabel(Ui.T("볼륨")));var volume=new TrackBar{Minimum=0,Maximum=100,Value=50,TickStyle=TickStyle.None,Width=110,Height=26};volume.ValueChanged+=delegate{Send("set_property","volume",volume.Value);};tools.Items.Add(new ToolStripControlHost(volume));
-        var info=Button(Ui.T("상세 정보"),delegate{details.Visible=!details.Visible;});info.CheckOnClick=true;
+        var info=Button(Ui.T("상세 정보"),delegate{});info.CheckOnClick=true;
+        info.CheckedChanged+=delegate{details.Visible=info.Checked;};
         title.Height=28;title.Padding=new Padding(12,4,0,0);details.Height=64;details.Padding=new Padding(12,6,0,0);details.Visible=false;
         var bottom=new Panel{Height=48,BackColor=Color.FromArgb(38,42,48),Padding=new Padding(8)};
         timing.Dock=DockStyle.Right;timing.Width=280;timing.TextAlign=ContentAlignment.MiddleCenter;bottom.Controls.Add(seek);bottom.Controls.Add(timing);
@@ -132,17 +143,47 @@ sealed class VideoViewer : Form {
         seek.MouseCaptureChanged+=delegate{if(dragging&&!seek.Capture){dragging=false;SeekAbsolute();}};
         host.MouseDown+=delegate{host.Focus();Toggle();};Controls.Add(host);
         chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var msg=new Message();return ProcessCmdKey(ref msg,key);});chrome.AddTop(details);chrome.AddTop(title);
+        DockWindowControls();
+        HandleCreated+=delegate{ModernUi.TitleBar(this);};
         player=new MpvPlayer(this);player.Message+=OnPlayerMessage;player.Failed+=ShowFailure;
         timer.Tick+=delegate{UpdateTimeline();DrainNavigation();};
-        Shown+=delegate{Bounds=bounds;startup=player.Start(host.Handle);LoadCurrent();timer.Start();chrome.Enable();};
+        Shown+=delegate{startup=player.Start(host.Handle);LoadCurrent();timer.Start();};
         FormClosed+=delegate{closing=true;loadVersion++;timer.Stop();timer.Dispose();chrome.Dispose();player.Dispose();};
+    }
+    void DockWindowControls(){
+        chrome.DockToolbarInOwner();
+        Controls.Add(details);
+        details.Dock=DockStyle.Top;
+        Controls.SetChildIndex(details,Controls.GetChildIndex(tools));
+        host.BringToFront();
+    }
+    void ToggleFullscreen(){
+        if(closing)return;
+        fullscreen=!fullscreen;
+        if(fullscreen){
+            var screen=Screen.FromControl(this).Bounds;
+            windowState=WindowState;
+            windowBounds=windowState==FormWindowState.Normal?Bounds:RestoreBounds;
+            WindowState=FormWindowState.Normal;
+            FormBorderStyle=FormBorderStyle.None;
+            Bounds=screen;
+            chrome.AddTop(details);
+            chrome.Enable();
+        }else{
+            DockWindowControls();
+            FormBorderStyle=FormBorderStyle.Sizable;
+            Bounds=windowBounds;
+            WindowState=windowState;
+        }
+        modeButton.Text=fullscreen?ComponentSetup.Say("창 모드","Windowed mode"):ComponentSetup.Say("전체화면","Fullscreen");
+        host.Focus();
     }
     ToolStripButton Button(string label,Action action){var b=new ToolStripButton(label){DisplayStyle=ToolStripItemDisplayStyle.Text,Padding=new Padding(4,3,4,3)};b.Click+=delegate{action();};tools.Items.Add(b);return b;}
     async void Send(params object[] command){try{if(startup!=null)await startup;if(!closing)await player.Command(command);}catch(Exception ex){if(!closing)ShowFailure(ex.Message);}}
     async void LoadCurrent(){
         int version=++loadVersion;player.CancelNavigation();pendingSeek=seekTarget=null;frames.Clear();dragging=resumeAfterScrub=false;
         current=files[index];ready=false;paused=false;ended=false;duration=position=frameRate=0;width=height=0;codec=hardware="";flipHorizontal=flipVertical=false;
-        seek.Value=0;seek.Enabled=false;timing.Text=Ui.T("불러오는 중…");title.Text=Path.GetFileName(current);details.Text="";UpdatePlay();
+        seek.Value=0;seek.Enabled=false;timing.Text=Ui.T("불러오는 중…");title.Text=Path.GetFileName(current);Text=AppUpdater.WindowTitle(title.Text);details.Text="";UpdatePlay();
         try{await startup;if(closing||version!=loadVersion)return;await player.Command("set_property","vf","");if(closing||version!=loadVersion)return;await player.Command("loadfile",current,"replace");}
         catch(Exception ex){if(!closing&&version==loadVersion)ShowFailure(ex.Message);}
     }
@@ -200,6 +241,6 @@ sealed class VideoViewer : Form {
     internal static double FrameTarget(double position,int direction,double fps,double length){double frame=Math.Floor(position*fps+.0001)+direction;return Math.Max(0,Math.Min(Math.Max(0,Math.Ceiling(length*fps)-1),frame))/fps;}
     void ApplyFlip(){string filter=flipHorizontal?(flipVertical?"hflip,vflip":"hflip"):(flipVertical?"vflip":"");Send("set_property","vf",filter);}
     void Next(int delta){int next=Math.Max(0,Math.Min(files.Length-1,index+delta));if(next!=index){index=next;LoadCurrent();}}
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){switch(key){case Keys.Escape:case Keys.F11:Close();return true;case Keys.Space:Toggle();return true;case Keys.Left:Seek(-5);return true;case Keys.Right:Seek(5);return true;case Keys.D:StepFrame(-1);return true;case Keys.F:StepFrame(1);return true;case Keys.PageDown:Next(1);return true;case Keys.PageUp:Next(-1);return true;case Keys.Home:if(ready)QueueSeek(0);return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){switch(key){case Keys.Alt|Keys.Enter:ToggleFullscreen();return true;case Keys.Escape:if(fullscreen)ToggleFullscreen();else Close();return true;case Keys.Space:Toggle();return true;case Keys.Left:Seek(-5);return true;case Keys.Right:Seek(5);return true;case Keys.D:StepFrame(-1);return true;case Keys.F:StepFrame(1);return true;case Keys.PageDown:Next(1);return true;case Keys.PageUp:Next(-1);return true;case Keys.Home:if(ready)QueueSeek(0);return true;}return base.ProcessCmdKey(ref msg,key);}
 }
 }

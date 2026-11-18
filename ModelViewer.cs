@@ -44,11 +44,14 @@ static class ModelFiles {
 }
 partial class Viewer {
     void OpenModel(string path){
-        StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitFullscreen();
+        StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitImageView();
         string directory=Path.GetDirectoryName(Path.GetFullPath(path));if(!String.Equals(directory,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(directory);
         playbackActive=true;
-        try{using(var player=new ModelViewer(path,Screen.FromControl(this).Bounds))player.ShowDialog(this);}
-        finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitFullscreen();}else if(!IsDisposed)Browse(directory);}
+        var area=Screen.FromControl(this).WorkingArea;
+        var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
+        var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
+        try{using(var player=new ModelViewer(path,bounds))ShowMediaViewer(player);}
+        finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitImageView();}else if(!IsDisposed)Browse(directory);}
         if(IsDisposed)return;
         foreach(ListViewItem item in fileList.Items)if(String.Equals(item.Tag as string,path,StringComparison.OrdinalIgnoreCase)){item.Selected=true;item.EnsureVisible();}
         fileList.Focus();UpdateBrowserInfo();
@@ -63,13 +66,19 @@ sealed class ModelViewer:Form {
     readonly string path;
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     bool ready,closing,lightMode,editingLight;
+    bool fullscreen;
+    Rectangle windowBounds;
+    FormWindowState windowState;
+    ToolStripButton modeButton;
     ToolStripButton detailsButton,lightButton,lightSettingsButton;
     bool lightSelected,effectsPanelOpen;
     readonly System.Collections.Generic.Dictionary<string,ToolStripButton> visualButtons=new System.Collections.Generic.Dictionary<string,ToolStripButton>();
     string statistics="";
     public ModelViewer(string file,Rectangle bounds){
-        path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
+        path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),delegate{Close();});Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
+        modeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
+        modeButton.ToolTipText="Alt+Enter";
         var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
         Toggle(Ui.T("와이어프레임"),"wire",false);Toggle(Ui.T("텍스처"),"textures",true);Toggle(Ui.T("그리드"),"grid",true);Toggle(Ui.T("플랫 컬러"),"flat",false);Toggle("SSAO","ssao",false);
         lightButton=Add(Ui.T("라이트 추가 (L)"),delegate{Command("light");});lightButton.Enabled=false;lightButton.Tag="model";
@@ -78,9 +87,35 @@ sealed class ModelViewer:Form {
         status.Text=Ui.T("3D 모델을 읽는 중…");title.Text=Path.GetFileName(path);
         var bottom=new Panel{Height=42,BackColor=BackColor};bottom.Controls.Add(status);Controls.Add(web);
         chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var msg=new Message();return ProcessCmdKey(ref msg,key);});chrome.AddTop(title);tools.SizeChanged+=delegate{UpdateDetailsOverlay();};web.SizeChanged+=delegate{UpdateDetailsOverlay();};
-        Shown+=delegate{Bounds=bounds;chrome.Enable();Initialize();};
+        chrome.DockToolbarInOwner();web.BringToFront();
+        ModernUi.TitleBar(this);
+        HandleCreated+=delegate{ModernUi.TitleBar(this);};
+        Shown+=delegate{Initialize();};
         FormClosed+=delegate{closing=true;chrome.Dispose();web.Dispose();};
     }
+    void ToggleFullscreen(){
+        if(closing)return;
+        fullscreen=!fullscreen;
+        if(fullscreen){
+            var screen=Screen.FromControl(this).Bounds;
+            windowState=WindowState;
+            windowBounds=windowState==FormWindowState.Normal?Bounds:RestoreBounds;
+            WindowState=FormWindowState.Normal;
+            FormBorderStyle=FormBorderStyle.None;
+            Bounds=screen;
+            chrome.Enable();
+        }else{
+            chrome.DockToolbarInOwner();
+            web.BringToFront();
+            FormBorderStyle=FormBorderStyle.Sizable;
+            Bounds=windowBounds;
+            WindowState=windowState;
+        }
+        modeButton.Text=fullscreen?ComponentSetup.Say("창 모드","Windowed mode"):ComponentSetup.Say("전체화면","Fullscreen");
+        UpdateDetailsOverlay();
+        web.Focus();
+    }
+    void EscapeView(){if(fullscreen)ToggleFullscreen();else Close();}
     ToolStripButton Add(string label,Action action){var button=new ToolStripButton(label){Padding=new Padding(4,3,4,3)};button.Click+=delegate{action();};tools.Items.Add(button);return button;}
     void Toggle(string label,string command,bool initial){var b=Add(label,delegate{Command(command);});b.CheckOnClick=true;b.Checked=initial;b.Enabled=false;b.Tag="model";visualButtons[command]=b;if(command=="ssao")b.ToolTipText=Ui.T("접촉부 음영을 표시합니다. 플랫 컬러에서는 적용하지 않습니다.");}
     async void Command(string action){if(!ready||closing)return;try{await web.CoreWebView2.ExecuteScriptAsync("window.modelCommand("+json.Serialize(action)+")");web.Focus();}catch(Exception ex){if(!closing)status.Text=ex.Message;}}
@@ -92,7 +127,8 @@ sealed class ModelViewer:Form {
         if(!ready||closing)return;
         string text=Path.GetFileName(path)+"\n"+statistics;
         try{var info=new FileInfo(path);text+="\n"+Ui.T("파일 크기: ")+(info.Length/1048576.0).ToString("N2")+" MB\n"+Ui.T("수정한 날짜: ")+info.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");}catch(IOException){}
-        try{await web.CoreWebView2.ExecuteScriptAsync("window.setModelDetails("+json.Serialize(text)+","+(32+title.Height+tools.Height+12)+","+(detailsButton.Checked?"true":"false")+")");}catch(Exception ex){if(!closing)status.Text=ex.Message;}
+        int top=fullscreen?32+title.Height+tools.Height+12:12;
+        try{await web.CoreWebView2.ExecuteScriptAsync("window.setModelDetails("+json.Serialize(text)+","+top+","+(detailsButton.Checked?"true":"false")+")");}catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
     async void ApplyLight(int id,Color color,decimal strength){
         if(closing)return;
@@ -139,7 +175,8 @@ sealed class ModelViewer:Form {
             if(message=="ready"){
                 string url="https://model.lumaview.invalid/"+Uri.EscapeDataString(Path.GetFileName(path));
                 await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+")");
-            }else if(message=="exit"){Close();}
+            }else if(message=="exit"){EscapeView();}
+            else if(message=="toggleFullscreen"){ToggleFullscreen();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}
             else if(message.StartsWith("renderPanel:")){effectsPanelOpen=message.EndsWith(":on");}
             else if(message.StartsWith("renderBase:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(11));foreach(var name in new[]{"ssao","flat","textures"})if(data.ContainsKey(name))visualButtons[name].Checked=Convert.ToBoolean(data[name]);}
@@ -159,7 +196,21 @@ sealed class ModelViewer:Form {
             }
         }catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(effectsPanelOpen&&web.ContainsFocus){if(key==Keys.Escape){ToggleRenderEffects();return true;}if(key!=Keys.F11)return base.ProcessCmdKey(ref msg,key);}if(key==Keys.Escape||key==Keys.F11){if(lightMode)Command("cancelLight");else if(lightSelected)Command("clearSelection");else Close();return true;}if(key==Keys.L){Command("light");return true;}if(key==Keys.I){detailsButton.PerformClick();return true;}if(key==Keys.F){Command("iso");return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){
+        if(key==(Keys.Alt|Keys.Enter)){ToggleFullscreen();return true;}
+        if(effectsPanelOpen&&web.ContainsFocus){
+            if(key==Keys.Escape){ToggleRenderEffects();return true;}
+            return base.ProcessCmdKey(ref msg,key);
+        }
+        if(key==Keys.Escape){
+            if(lightMode)Command("cancelLight");else if(lightSelected)Command("clearSelection");else EscapeView();
+            return true;
+        }
+        if(key==Keys.L){Command("light");return true;}
+        if(key==Keys.I){detailsButton.PerformClick();return true;}
+        if(key==Keys.F){Command("iso");return true;}
+        return base.ProcessCmdKey(ref msg,key);
+    }
 }
 sealed class ModelLightEditor:Form {
     readonly Button colorButton=new Button{Location=new Point(120,20),Size=new Size(220,34)};

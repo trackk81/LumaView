@@ -8,6 +8,10 @@ namespace LumaView {
 static class ExtendedDecoder {
     public static readonly string[] Extensions={".exr",".psd",".psb",".webp",".tga",".hdr",".dpx",".dds"};
     public static Bitmap Decode(string path,int maxWidth=0,int maxHeight=0) {
+        if(String.Equals(Path.GetExtension(path),".exr",StringComparison.OrdinalIgnoreCase)){
+            var aov=ExrAov.TryDecode(path,maxWidth,maxHeight);
+            if(aov!=null)return aov;
+        }
         string executable=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"codecs","magick.exe");
         if(!File.Exists(executable)) throw new FileNotFoundException("codecs 폴더를 실행 파일 옆에 두세요. 확장 포맷 디코더가 없습니다.");
         string coder=Path.GetExtension(path).TrimStart('.').ToUpperInvariant();

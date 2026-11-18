@@ -12,5 +12,5 @@ foreach ($fixture in @('old','new','fail')) {
 }
 & $compiler /nologo /target:exe /platform:x64 "/out:$output\UpdateChecks.exe" /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root 'UpdateFiles.cs') (Join-Path $root 'tests\UpdateChecks.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Updater tests build failed' }
-& (Join-Path $output 'UpdateChecks.exe') ([IO.Path]::GetTempPath()) $output (Join-Path $output 'LumaView.Updater.exe')
+& (Join-Path $output 'UpdateChecks.exe') ([IO.Path]::GetTempPath()) $output (Join-Path $output 'DollView.Updater.exe')
 if ($LASTEXITCODE -ne 0) { throw 'Automatic updater checks failed' }

@@ -145,7 +145,7 @@ sealed class ComponentSettings:UserControl {
         string net;try{int release=ComponentSetup.NetRelease();net=release>=533320?"4.8.1+":release>=528040?"4.8":ComponentSetup.Say("4.8 이상 설치 필요","4.8 or later required");}catch{net=ComponentSetup.Say("확인하지 못함","Could not verify");}
         AddRow(".NET Framework",net);
         string web=ComponentSetup.WebViewVersion();AddRow("Microsoft WebView2",String.IsNullOrEmpty(web)?ComponentSetup.Say("3D 보기 · 설치 필요 · 자동 다운로드","3D viewer · Missing · automatic download"):ComponentSetup.Say("3D 보기 · 준비됨 · ","3D viewer · Ready · ")+web);
-        foreach(var component in ComponentSetup.BundledComponents())AddRow(component[0],ComponentSetup.HasFiles(component.Skip(1).ToArray())?ComponentSetup.Say("배포본에 포함됨 · 설치 불필요","Included with LumaView · no installation needed"):ComponentSetup.Say("파일 누락 · ZIP 전체를 압축 해제하세요.","Files missing · extract the entire release ZIP."));
+        foreach(var component in ComponentSetup.BundledComponents())AddRow(component[0],ComponentSetup.HasFiles(component.Skip(1).ToArray())?ComponentSetup.Say("배포본에 포함됨 · 설치 불필요","Included with DollView · no installation needed"):ComponentSetup.Say("파일 누락 · ZIP 전체를 압축 해제하세요.","Files missing · extract the entire release ZIP."));
         rows.ResumeLayout(true);RefreshSelection();Ui.Apply(rows);
     }
     void RefreshSelection(){
@@ -158,7 +158,7 @@ sealed class ComponentSettings:UserControl {
         try{
             status.Text=ComponentSetup.Say("구성 요소 확인 중…","Checking components…");
             await ComponentSetup.PrepareAsync(chosen,text=>{if(!IsDisposed)status.Text=text;},cancel.Token);
-            if(!IsDisposed)status.Text=chosen.Length>0?ComponentSetup.Say("구성 요소가 준비되었습니다. 파일 연결 후보로 등록했으며, 열린 Windows 설정에서 LumaView를 선택하면 완료됩니다.","Components are ready and file types are registered. Choose LumaView in the Windows Settings page to finish."):ComponentSetup.Say("구성 요소가 준비되었습니다. 3D 모델을 다시 열면 사용할 수 있습니다.","Components are ready. Reopen your 3D model to use them.");
+            if(!IsDisposed)status.Text=chosen.Length>0?ComponentSetup.Say("구성 요소가 준비되었습니다. 파일 연결 후보로 등록했으며, 열린 Windows 설정에서 DollView를 선택하면 완료됩니다.","Components are ready and file types are registered. Choose DollView in the Windows Settings page to finish."):ComponentSetup.Say("구성 요소가 준비되었습니다. 3D 모델을 다시 열면 사용할 수 있습니다.","Components are ready. Reopen your 3D model to use them.");
         }catch(OperationCanceledException){if(!IsDisposed)status.Text=ComponentSetup.Say("다운로드가 중단되었거나 시간이 초과되었습니다. 다시 시도하세요.","The download was cancelled or timed out. Try again.");}
         catch(Exception ex){if(!IsDisposed)status.Text=ex.Message;}
         finally{busy=false;if(!IsDisposed){prepare.Enabled=refresh.Enabled=connect.Enabled=true;RefreshStatus();}}

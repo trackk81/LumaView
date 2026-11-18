@@ -22,7 +22,7 @@ static void Associations(){
    Check(!(bool)Call("FileAssociations","Registered",".jpg"),"uninstall removes this installation's registration");
    using(var key=Registry.CurrentUser.OpenSubKey(choice))Check((string)key.GetValue("ProgId")=="AnotherViewer.Jpeg","existing Windows UserChoice survives register/unregister");
    Call("FileAssociations","Register",new object[]{new[]{".jpg"}});
-   foreach(string path in new[]{@"Software\Classes\LumaView.File.jpg",@"Software\Classes\Applications\LumaView.exe"})using(var key=Registry.CurrentUser.CreateSubKey(path+@"\shell\open\command"))key.SetValue("","\"C:\\Newer\\LumaView.exe\" \"%1\"");
+   foreach(string path in new[]{@"Software\Classes\LumaView.File.jpg",@"Software\Classes\Applications\DollView.exe"})using(var key=Registry.CurrentUser.CreateSubKey(path+@"\shell\open\command"))key.SetValue("","\"C:\\Newer\\DollView.exe\" \"%1\"");
    Call("FileAssociations","UnregisterOwned");
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\Classes\LumaView.File.jpg"))Check(key!=null,"uninstall preserves newer installation registration");
   }finally{RegOverridePredefKey(CurrentUser,IntPtr.Zero);}
@@ -46,7 +46,7 @@ static void Updater(){
  app.GetType("LumaView.Ui").GetField("Language").SetValue(null,"ko");
  Check((Version)Call("AppUpdater","ReleaseVersion",Release("0.3.0").Replace("SHA256SUMS.txt","absent.txt"))==new Version(0,3,0),"retain GitHub version when release asset validation fails");
  var running=(Version)app.GetType("LumaView.AppUpdater").GetProperty("CurrentVersion",stat).GetValue(null,null);
- Check(((string)Call("AppUpdater","WindowTitle",new string('x',300))).StartsWith("LumaView v"+running),"version precedes long paths in window titles");
+ Check(((string)Call("AppUpdater","WindowTitle",new string('x',300))).StartsWith("DollView v"+running),"version precedes long paths in window titles");
  string hash=new string('a',64);Check((string)Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n","portable.zip")==hash,"read exact ZIP checksum");
  Reject(()=>Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n"+hash+"  portable.zip","portable.zip"),"reject duplicate checksums");
  string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified ZIP bytes");}finally{File.Delete(temp);}
@@ -80,7 +80,7 @@ static void Components(){
 static void Layout(){
  using(var form=(Form)Activator.CreateInstance(app.GetType("LumaView.Viewer"),new object[]{null})){
   form.Show();for(int n=0;n<25;n++){Application.DoEvents();System.Threading.Thread.Sleep(10);}
-  Check(form.Text.StartsWith("LumaView v"),"gallery title displays running version first");
+  Check(form.Text.StartsWith("DollView v"),"gallery title displays running version first");
   var update=Walk(form).OfType<Button>().Single(x=>x.Name=="updateButton");
   Check(update.Visible&&update.Enabled,"update button appears in normal gallery");
   var siblings=update.Parent.Controls.Cast<Control>().ToArray();int index=Array.IndexOf(siblings,update);Check(index>0&&(siblings[index-1].Text=="설정"||siblings[index-1].Text=="Settings")&&update.Left>=siblings[index-1].Right,"update button sits directly beside settings");
@@ -100,6 +100,6 @@ static void Layout(){
   }
  }
 }
-[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"LumaView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
+[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
 }
 

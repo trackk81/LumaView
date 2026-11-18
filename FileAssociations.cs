@@ -22,16 +22,16 @@ static class FileAssociations {
         if(extensions.Any(e=>!Extensions.Contains(e)))throw new ArgumentException("extension");
         string executable=Application.ExecutablePath;
         string iconPath=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","LumaView.ico");if(!File.Exists(iconPath))iconPath=executable;
-        using(var caps=Registry.CurrentUser.CreateSubKey(Capabilities)){caps.SetValue("ApplicationName","LumaView");caps.SetValue("ApplicationDescription","LumaView image, sequence and video viewer");caps.SetValue("ApplicationIcon","\""+iconPath+"\",0");}
+        using(var caps=Registry.CurrentUser.CreateSubKey(Capabilities)){caps.SetValue("ApplicationName","DollView");caps.SetValue("ApplicationDescription","DollView image, sequence and video viewer");caps.SetValue("ApplicationIcon","\""+iconPath+"\",0");}
         using(var registered=Registry.CurrentUser.CreateSubKey(@"Software\RegisteredApplications"))registered.SetValue("LumaView",Capabilities);
-        using(var app=Registry.CurrentUser.CreateSubKey(@"Software\Classes\Applications\LumaView.exe")){
-            app.SetValue("FriendlyAppName","LumaView");using(var icon=app.CreateSubKey("DefaultIcon"))icon.SetValue("","\""+iconPath+"\",0");using(var command=app.CreateSubKey(@"shell\open\command"))command.SetValue("",OpenCommand(executable));
+        using(var app=Registry.CurrentUser.CreateSubKey(@"Software\Classes\Applications\DollView.exe")){
+            app.SetValue("FriendlyAppName","DollView");using(var icon=app.CreateSubKey("DefaultIcon"))icon.SetValue("","\""+iconPath+"\",0");using(var command=app.CreateSubKey(@"shell\open\command"))command.SetValue("",OpenCommand(executable));
             using(var supported=app.CreateSubKey("SupportedTypes"))foreach(string extension in extensions)supported.SetValue(extension,"");
         }
         foreach(string extension in extensions){
             string progId="LumaView.File"+extension;
             using(var prog=Registry.CurrentUser.CreateSubKey(@"Software\Classes\"+progId)){
-                prog.SetValue("","LumaView "+extension.ToUpperInvariant()+" file");
+                prog.SetValue("","DollView "+extension.ToUpperInvariant()+" file");
                 using(var icon=prog.CreateSubKey("DefaultIcon"))icon.SetValue("","\""+iconPath+"\",0");
                 using(var command=prog.CreateSubKey(@"shell\open\command"))command.SetValue("",OpenCommand(executable));
             }
@@ -48,7 +48,7 @@ static class FileAssociations {
         // A separate, reusable capability profile scopes the Windows page to
         // the selection. The main registration and existing defaults stay intact.
         using(var caps=Registry.CurrentUser.CreateSubKey(SelectedCapabilities)){
-            caps.SetValue("ApplicationName",Ui.T("LumaView — 선택한 확장자"));
+            caps.SetValue("ApplicationName",Ui.T("DollView — 선택한 확장자"));
             caps.SetValue("ApplicationDescription",String.Join(", ",extensions.Distinct()));
             using(var main=Registry.CurrentUser.OpenSubKey(Capabilities)){
                 if(main!=null&&main.GetValue("ApplicationIcon") is string)caps.SetValue("ApplicationIcon",(string)main.GetValue("ApplicationIcon"));
@@ -89,7 +89,7 @@ static class FileAssociations {
             Registry.CurrentUser.DeleteSubKeyTree(path,false);
             using(var openWith=Registry.CurrentUser.OpenSubKey(@"Software\Classes\"+extension+@"\OpenWithProgids",true))if(openWith!=null)openWith.DeleteValue(progId,false);
         }
-        string appPath=@"Software\Classes\Applications\LumaView.exe";
+        string appPath=@"Software\Classes\Applications\DollView.exe";
         if(OwnsCommand(appPath)){
             Registry.CurrentUser.DeleteSubKeyTree(appPath,false);
             Registry.CurrentUser.DeleteSubKeyTree(Capabilities,false);
@@ -112,7 +112,7 @@ sealed class AssociationSettings:UserControl {
     public AssociationSettings(){
         Dock=DockStyle.Fill;
         var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
-        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("더블클릭으로 열 형식을 선택하세요. Windows에서 LumaView를 최종 선택하면 연결됩니다.","Choose the formats to open with a double-click, then confirm LumaView in Windows Settings."),true));
+        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("더블클릭으로 열 형식을 선택하세요. Windows에서 DollView를 최종 선택하면 연결됩니다.","Choose the formats to open with a double-click, then confirm DollView in Windows Settings."),true));
         list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
         rowHeight.ImageSize=new Size(1,32);list.SmallImageList=rowHeight;
         list.Resize+=delegate{int unit=Font.Height;list.Columns[0].Width=unit*5;list.Columns[1].Width=unit*7;list.Columns[2].Width=Math.Max(unit*8,list.ClientSize.Width-unit*12-SystemInformation.VerticalScrollBarWidth-4);};
@@ -125,7 +125,7 @@ sealed class AssociationSettings:UserControl {
             if(connecting)return;connecting=true;register.Enabled=false;
             try{
                 string[] selected=SelectedExtensions;FileAssociations.Register(selected);RefreshRows();FileAssociations.OpenSelectedDefaults(selected);
-                notice.Text=Ui.T("Windows에서 선택할 확장자: ")+String.Join(", ",selected)+"\n"+Ui.T("LumaView를 선택해 완료하세요. 연결 결과는 복귀 시 갱신됩니다.");
+                notice.Text=Ui.T("Windows에서 선택할 확장자: ")+String.Join(", ",selected)+"\n"+Ui.T("DollView를 선택해 완료하세요. 연결 결과는 복귀 시 갱신됩니다.");
             }catch(Exception ex){notice.Text=ex.Message;}
             finally{connecting=false;register.Enabled=true;}
         };

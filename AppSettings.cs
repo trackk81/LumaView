@@ -132,13 +132,13 @@ static class Ui {
 실시간 재생	Real-time playback
 읽기가 늦으면 프레임을 건너뛰어 재생 시간을 유지합니다.	Skip late frames to keep playback on time.
 프레임 번호	Frame number
-LumaView — 선택한 확장자	LumaView — Selected extensions
-확장자를 체크하고 연결을 누르면 선택한 형식만 표시됩니다.\n열린 화면에서 LumaView를 선택하세요. 검색할 필요가 없습니다.	Connect opens a page containing only the checked extensions.\nChoose LumaView there; no extension search is needed.
+DollView — 선택한 확장자	DollView — Selected extensions
+확장자를 체크하고 연결을 누르면 선택한 형식만 표시됩니다.\n열린 화면에서 DollView를 선택하세요. 검색할 필요가 없습니다.	Connect opens a page containing only the checked extensions.\nChoose DollView there; no extension search is needed.
 연결	Connect
 연결 후보	Available handler
-확장자를 체크하고 연결을 누르세요. LumaView 기본 앱 화면이 바로 열립니다.\nWindows에서 최종 선택하면 돌아왔을 때 연결 상태가 갱신됩니다.	Check extensions and click Connect to open LumaView defaults directly.\nConfirm in Windows; status refreshes when you return.
+확장자를 체크하고 연결을 누르세요. DollView 기본 앱 화면이 바로 열립니다.\nWindows에서 최종 선택하면 돌아왔을 때 연결 상태가 갱신됩니다.	Check extensions and click Connect to open DollView defaults directly.\nConfirm in Windows; status refreshes when you return.
 Windows에서 선택할 확장자: 	Extensions to select in Windows: 
-LumaView를 선택해 완료하세요. 연결 결과는 복귀 시 갱신됩니다.	Choose LumaView to finish. Results refresh when you return.
+DollView를 선택해 완료하세요. 연결 결과는 복귀 시 갱신됩니다.	Choose DollView to finish. Results refresh when you return.
 UI 배경	UI background
 메뉴 / 버튼	Menus / buttons
 글자	Text
@@ -159,7 +159,7 @@ Windows 기본 앱 설정 열기	Open Windows default apps
 미등록	Not registered
 확장자를 선택해 주세요.	Select at least one extension.
 확장자를 선택하고 등록한 뒤 Windows에서 기본 앱을 LumaView로 선택하세요.\n등록만으로 현재 기본 앱이 바뀌지는 않습니다.	Select extensions and register them, then choose LumaView in Windows.\nRegistration alone does not change your default apps.
-등록했습니다. Windows 기본 앱 설정에서 확장자별로 LumaView를 선택하세요.	Registered. Choose LumaView for each extension in Windows default apps.
+등록했습니다. Windows 기본 앱 설정에서 확장자별로 DollView를 선택하세요.	Registered. Choose DollView for each extension in Windows default apps.
 설정	Settings
 업데이트	Update
 언어	Language
@@ -249,7 +249,7 @@ LumaView 시퀀스	LumaView Sequence
  프레임]	 frames]
 \nSQ 시퀀스 · 	\nSQ sequence · 
  프레임	 frames
-개 파일  ·  더블클릭: 전체화면  ·  	 items  ·  Double-click: fullscreen  ·  
+개 파일  ·  더블클릭: 열기	 items  ·  Double-click: open
 확인 불가	Unavailable
 슬라이드쇼 재생 중	Slideshow playing
 준비  ·  원본 파일을 변경하지 않습니다	Ready  ·  Source files are preserved
@@ -302,7 +302,7 @@ sealed class CustomColorEditor:SettingsStack {
                 TextRenderer.DrawText(e.Graphics,Ui.T("미리보기"),Font,Rectangle.Inflate(header,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
                 var button=new Rectangle(pad,Height*3/10,Math.Max(1,Width-pad*2),Height/5);e.Graphics.FillRectangle(surface,button);e.Graphics.DrawRectangle(border,button);
                 TextRenderer.DrawText(e.Graphics,Ui.T("메뉴 / 버튼"),Font,Rectangle.Inflate(button,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
-                TextRenderer.DrawText(e.Graphics,"LumaView  ·  image.png",Font,new Rectangle(pad,Height*11/20,Width-pad*2,Height/6),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(e.Graphics,"DollView  ·  image.png",Font,new Rectangle(pad,Height*11/20,Width-pad*2,Height/6),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);
                 var highlight=new Rectangle(pad,Height*3/4,Math.Max(1,Width-pad*2),Height/5);e.Graphics.FillRectangle(selected,highlight);
                 TextRenderer.DrawText(e.Graphics,Ui.T("선택 강조"),Font,Rectangle.Inflate(highlight,-pad,0),c[2],TextFormatFlags.Left|TextFormatFlags.VerticalCenter);e.Graphics.DrawRectangle(border,0,0,Width-1,Height-1);
             }
@@ -338,7 +338,7 @@ sealed class SettingsDialog:Form {
         var body=new Panel{Dock=DockStyle.Fill};body.Controls.Add(pageHost);body.Controls.Add(sidebar);
         var header=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,Padding=new Padding(24,18,24,14)};
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var heading=ModernUi.Text("LumaView  /  "+Ui.T("설정"),false,15,true);heading.Dock=DockStyle.Fill;heading.AutoSize=true;heading.MinimumSize=new Size(0,heading.Font.Height+6);header.Controls.Add(heading,0,0);
+        var heading=ModernUi.Text("DollView  /  "+Ui.T("설정"),false,15,true);heading.Dock=DockStyle.Fill;heading.AutoSize=true;heading.MinimumSize=new Size(0,heading.Font.Height+6);header.Controls.Add(heading,0,0);
         header.Controls.Add(new Label{Text="v"+AppUpdater.CurrentVersion,AutoSize=true,Anchor=AnchorStyles.Right,ForeColor=ModernUi.Muted},1,0);
         var save=new ModernButton{Text=Ui.T("저장"),Primary=true,Name="settingsSave"};var cancel=new ModernButton{Text=ComponentSetup.Say("닫기","Close"),DialogResult=DialogResult.Cancel};AcceptButton=save;CancelButton=cancel;
         save.Click+=delegate{try{Ui.SavePalette(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};

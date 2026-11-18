@@ -1,5 +1,5 @@
 using System;using System.IO;using System.Threading;using System.Reflection;
-[assembly:AssemblyProduct("LumaView")]
+[assembly:AssemblyProduct("DollView")]
 #if OLD
 [assembly:AssemblyFileVersion("1.0.0.0")]
 #else

@@ -32,11 +32,13 @@ jobs:
         run: .\scripts\fetch-video-runtime.ps1
       - name: Build portable ZIP
         shell: pwsh
-        run: .\scripts\package.ps1
+        run: |
+          .\scripts\package.ps1 -CleanPortable
+          .\scripts\package.ps1
       - name: Verify portable archive
         shell: pwsh
         run: .\scripts\test-portable.ps1
-      - name: Verify packaged upgrade from 0.2.3
+      - name: Verify packaged upgrade from 0.2.6
         shell: pwsh
         run: .\scripts\test-packaged-update.ps1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -44,7 +46,9 @@ jobs:
           name: LumaView-Windows
           path: |
             dist/LumaView-*-win-x64.zip
+            dist/DollView-*-win-x64.zip
             dist/SHA256SUMS.txt
+            dist/DollView-SHA256SUMS.txt
           if-no-files-found: error
       - name: Create draft release
         if: startsWith(github.ref, 'refs/tags/')
@@ -53,5 +57,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          gh release create $env:GITHUB_REF_NAME "dist/LumaView-$version-win-x64.zip" dist/SHA256SUMS.txt --draft --verify-tag --title "LumaView $version (ZIP)" --notes-file RELEASE_NOTES.md
+          gh release create $env:GITHUB_REF_NAME "dist/DollView-$version-win-x64.zip" dist/DollView-SHA256SUMS.txt "dist/LumaView-$version-win-x64.zip" dist/SHA256SUMS.txt --draft --verify-tag --title "DollView $version (ZIP)" --notes-file RELEASE_NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }

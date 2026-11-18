@@ -22,7 +22,7 @@ class UpdateDialogCheck {
 
     [STAThread] static int Main(string[] args) {
         try {
-            if(args.Length<2) throw new ArgumentException("Usage: UpdateDialogCheck.exe <LumaView.exe> <expected GitHub version> [screenshot.png]");
+            if(args.Length<2) throw new ArgumentException("Usage: UpdateDialogCheck.exe <DollView.exe> <expected GitHub version> [screenshot.png]");
             Application.EnableVisualStyles();
             var assembly=Assembly.LoadFrom(System.IO.Path.GetFullPath(args[0]));
             var flags=BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
@@ -36,7 +36,7 @@ class UpdateDialogCheck {
                 owner.Controls.Add(button); owner.Show();
                 timer.Tick+=delegate {
                     EnumThreadWindows(thread,(h,s)=> {
-                        if(!Text(h).StartsWith("LumaView v"+current)) return true;
+                        if(!Text(h).StartsWith("DollView v"+current)) return true;
                         if(!visible.IsRunning) visible.Start();
                         if(visible.ElapsedMilliseconds<500) return false;
                         var text=new StringBuilder();

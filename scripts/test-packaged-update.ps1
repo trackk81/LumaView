@@ -5,10 +5,10 @@ $version=(Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
 $checkRoot=Join-Path ([IO.Path]::GetTempPath()) ('LumaView-package-upgrade-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $checkRoot | Out-Null
 if (!$PreviousPackage) {
-    $PreviousPackage=Join-Path $checkRoot 'LumaView-0.2.3-win-x64.zip'
-    Invoke-WebRequest -Uri 'https://github.com/trackk81/LumaView/releases/download/v0.2.3/LumaView-0.2.3-win-x64.zip' -OutFile $PreviousPackage
+    $PreviousPackage=Join-Path $checkRoot 'LumaView-0.2.6-win-x64.zip'
+    Invoke-WebRequest -Uri 'https://github.com/trackk81/LumaView/releases/download/v0.2.6/LumaView-0.2.6-win-x64.zip' -OutFile $PreviousPackage
 }
-if ((Get-FileHash -LiteralPath $PreviousPackage -Algorithm SHA256).Hash -ine '7bb30d08d26e362decec6803da359e54e3f0d6660361646582344492c68e16d5') { throw 'Previous release hash mismatch' }
+if ((Get-FileHash -LiteralPath $PreviousPackage -Algorithm SHA256).Hash -ine '3a2978578b5b1c1a4be0910a02f69d38bf79abda1e31d7b7f41065086700a7f1') { throw 'Previous release hash mismatch' }
 $target=Join-Path $checkRoot 'app'
 Expand-Archive -LiteralPath $PreviousPackage -DestinationPath $target
 $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'

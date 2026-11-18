@@ -81,16 +81,21 @@ static class UpdateFiles {
     internal static void ValidatePayload(string root,string version,UpdateFile[] files){
         if(!Regex.IsMatch(version??"",@"^\d+\.\d+\.\d+$"))throw new InvalidDataException("Invalid update version.");
         var names=new HashSet<string>(files.Select(f=>f.Name),StringComparer.OrdinalIgnoreCase);
-        foreach(string name in new[]{"LumaView.exe","LumaView.Updater.exe","VERSION","Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","video-runtime/mpv.exe","codecs/magick.exe","model-viewer/index.html"})if(!names.Contains(name))throw new InvalidDataException("Update is missing "+name);
-        if(File.ReadAllText(Inside(root,"VERSION")).Trim()!=version||FileVersionInfo.GetVersionInfo(Inside(root,"LumaView.exe")).FileVersion!=version+".0")throw new InvalidDataException("Update executable version mismatch.");
+        foreach(string name in new[]{"DollView.exe","DollView.Updater.exe","VERSION","Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","video-runtime/mpv.exe","codecs/magick.exe","model-viewer/index.html"})if(!names.Contains(name))throw new InvalidDataException("Update is missing "+name);
+        if(File.ReadAllText(Inside(root,"VERSION")).Trim()!=version||FileVersionInfo.GetVersionInfo(Inside(root,"DollView.exe")).FileVersion!=version+".0")throw new InvalidDataException("Update executable version mismatch.");
+    }
+    internal const string Executable="DollView.exe";
+    internal const string LegacyExecutable="LumaView.exe";
+    internal static string InstalledExecutable(string root){
+        return File.Exists(Inside(root,Executable))?Executable:LegacyExecutable;
     }
     internal static void ValidateJob(UpdateJob job){
         Guid id;if(job==null||!Guid.TryParseExact(job.Id,"N",out id)||job.Files==null||job.Files.Length==0||job.Files.Length>5000)throw new InvalidDataException("Invalid update job.");
         NoLinks(job.WorkRoot);NoLinks(job.TargetRoot);
-        string source=Inside(job.WorkRoot,"payload");string target=Inside(job.TargetRoot,"LumaView.exe");
+        string source=Inside(job.WorkRoot,"payload");string target=Inside(job.TargetRoot,InstalledExecutable(job.TargetRoot));
         string targetRoot=Path.GetFullPath(job.TargetRoot).TrimEnd('\\')+"\\",workRoot=Path.GetFullPath(job.WorkRoot).TrimEnd('\\')+"\\";
         if(targetRoot.StartsWith(workRoot,StringComparison.OrdinalIgnoreCase)||workRoot.StartsWith(targetRoot,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("Update cache must be outside the application directory.");
-        if(!File.Exists(target)||FileVersionInfo.GetVersionInfo(target).ProductName!="LumaView")throw new InvalidDataException("The update target is not a LumaView installation.");
+        if(!File.Exists(target)||FileVersionInfo.GetVersionInfo(target).ProductName!=(Path.GetFileName(target)==Executable?"DollView":"LumaView"))throw new InvalidDataException("The update target is not a DollView installation.");
         if(!Regex.IsMatch(job.FromVersion??"",@"^\d+\.\d+\.\d+$")||FileVersionInfo.GetVersionInfo(target).FileVersion!=job.FromVersion+".0")throw new InvalidDataException("The installed executable changed. Restart LumaView and retry the update.");
         var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(var file in job.Files){
@@ -126,7 +131,7 @@ sealed class UpdateTransaction {
         File.WriteAllText(UpdateFiles.Inside(job.WorkRoot,"original-files.json"),new JavaScriptSerializer().Serialize(originals));
     }
     internal void Install(Action<string> progress){
-        foreach(var file in job.Files.OrderBy(f=>String.Equals(f.Name,"LumaView.exe",StringComparison.OrdinalIgnoreCase)?1:0)){
+        foreach(var file in job.Files.OrderBy(f=>String.Equals(f.Name,"DollView.exe",StringComparison.OrdinalIgnoreCase)?1:0)){
             progress(file.Name);
             File.WriteAllText(UpdateFiles.Inside(job.WorkRoot,"changed-files.json"),new JavaScriptSerializer().Serialize(changed.Concat(new[]{file.Name})));
             UpdateFiles.Replace(UpdateFiles.Inside(UpdateFiles.Inside(job.WorkRoot,"payload"),file.Name),UpdateFiles.Inside(job.TargetRoot,file.Name));

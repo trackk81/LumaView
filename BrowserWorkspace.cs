@@ -61,7 +61,7 @@ partial class Viewer {
         using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
         fileList.Dock=DockStyle.Fill;fileList.View=View.LargeIcon;fileList.LargeImageList=thumbnails;fileList.MultiSelect=false;fileList.HideSelection=false;fileList.BackColor=Color.FromArgb(40,43,48);fileList.ForeColor=Color.Gainsboro;fileList.BorderStyle=BorderStyle.None;fileList.ShowItemToolTips=true;
         fileList.HandleCreated+=delegate{ModernUi.GallerySpacing(fileList);};fileList.FontChanged+=delegate{ModernUi.GallerySpacing(fileList);};
-        fileList.ItemActivate+=delegate{OpenSelectedFullscreen();};
+        fileList.ItemActivate+=delegate{OpenSelectedImage();};
         fileList.SelectedIndexChanged+=delegate{UpdateBrowserInfo();};
         split.Panel2.Controls.Add(fileList);browser.Controls.Add(split);browser.Controls.Add(addressBar);Controls.Add(browser);
         canvas.Visible=false;
@@ -93,7 +93,7 @@ partial class Viewer {
             folders.SelectedNode=current;current.EnsureVisible();
         }finally{syncingTree=false;}
     }
-    void ToggleExplorer(){if(full){ExitFullscreen();return;}split.Panel1Collapsed=!split.Panel1Collapsed;}
+    void ToggleExplorer(){if(full){ExitImageView();return;}split.Panel1Collapsed=!split.Panel1Collapsed;}
     void Browse(string path){
         if(full)return;
         try{
@@ -131,22 +131,38 @@ partial class Viewer {
             }
         }finally{thumbnailWorker.Release();}
     }
-    void UpdateBrowserInfo(){if(full || busy)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 전체화면  ·  ")+Path.GetFileName(name);info.ToolTipText=name;}
+    void UpdateBrowserInfo(){if(full || busy)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
     void SyncExplorer(){
         string dir=Path.GetDirectoryName(album.Current);
         if(!full && !String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
         foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals((string)item.Tag,album.Current,StringComparison.OrdinalIgnoreCase);if(item.Selected){item.Focused=true;item.EnsureVisible();}}
         if(!full){Text=AppUpdater.WindowTitle(browsingFolder);UpdateBrowserInfo();}
     }
-    void OpenSelectedFullscreen(){if(busy)return;if(fileList.SelectedItems.Count==0)return;enterAfterLoad=true;Open((string)fileList.SelectedItems[0].Tag);}
+    void OpenSelectedImage(bool fullscreen=false){
+        if(busy||fileList.SelectedItems.Count==0)return;
+        string path=(string)fileList.SelectedItems[0].Tag;
+        fullscreenAfterLoad=fullscreen&&Album.Supported(path);
+        Open(path);
+    }
+    void ShowMediaViewer(Form viewer){
+        bool restoreBrowser=Visible;
+        if(restoreBrowser)Hide();
+        try{viewer.ShowDialog(this);}
+        finally{
+            if(restoreBrowser&&!IsDisposed&&!Disposing){
+                Show();
+                Activate();
+            }
+        }
+    }
     bool OpenSequence(string path){
         string[] sequence;if(!sequenceGroups.TryGetValue(path,out sequence)){
             sequence=sequenceGroups.Values.FirstOrDefault(items=>items.Contains(path,StringComparer.OrdinalIgnoreCase));
             if(sequence==null)return false;
         }
-        StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitFullscreen();playbackActive=true;
+        StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitImageView();playbackActive=true;
         int start=Array.FindIndex(sequence,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
-        try{using(var player=new SequenceViewer(sequence,Screen.FromControl(this).Bounds,start))player.ShowDialog(this);}finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitFullscreen();}fileList.Focus();}return true;
+        try{using(var player=new SequenceViewer(sequence,Screen.FromControl(this).Bounds,start))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitImageView();}fileList.Focus();}return true;
     }
     async void LoadAsync(string path,int index){
         busy=true;UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
@@ -155,21 +171,60 @@ partial class Viewer {
             var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.Open(path);else{a.Files=files;a.Select(index);}return a;}catch{a.Dispose();throw;}});
             if(IsDisposed){next.Dispose();return;}
             canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;next.Dispose();Loaded();
-            if(enterAfterLoad && !full)EnterFullscreen(); if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}
+            if(enterAfterLoad && !full)EnterImageView();
+            if(fullscreenAfterLoad && full)SetImageFullscreen(true);
+            if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}
         }catch(Exception ex){if(!IsDisposed){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
-        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitFullscreen();}enterAfterLoad=false;startSlideAfterLoad=false;busy=false;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();}}
+        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();}}
     }
-    void EnterFullscreen(bool allowEmpty=false){
+    void EnterImageView(bool allowEmpty=false){
         if((album.Image==null&&!allowEmpty) || full)return;
-        oldBounds=Bounds;oldState=WindowState;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.None;Bounds=Screen.FromControl(this).Bounds;
-        if(chrome==null)chrome=new FullscreenChrome(this,toolbar,null,delegate(Keys key){var message=new Message();return ProcessCmdKey(ref message,key);});
-        full=true;browser.Visible=false;toolbar.Visible=true;status.Visible=false;Controls.Add(canvas);canvas.Visible=true;canvas.BringToFront();canvas.Focus();canvas.Reset();chrome.Enable();
+        full=true;
+        galleryMinimumSize=MinimumSize;
+        MinimumSize=new Size(360,230);
+        browser.Visible=false;
+        Controls.Add(canvas);
+        canvas.Visible=true;
+        canvas.BringToFront();
+        toolbar.Visible=true;
+        canvas.Focus();
+        canvas.Reset();
     }
-    void ExitFullscreen(){
-        if(!full)return;chrome.Disable();StopSlide();full=false;canvas.Visible=false;Controls.Remove(canvas);browser.Visible=true;toolbar.Visible=false;status.Visible=true;
-        FormBorderStyle=FormBorderStyle.Sizable;Bounds=oldBounds;WindowState=oldState;Browse(browsingFolder);if(album.Image!=null)SyncExplorer();fileList.Focus();UpdateBrowserInfo();
+    void SetImageFullscreen(bool enabled){
+        if(!full||imageFullscreen==enabled)return;
+        imageFullscreen=enabled;
+        if(enabled){
+            var screen=Screen.FromControl(this).Bounds;
+            oldState=WindowState;
+            oldBounds=WindowState==FormWindowState.Normal?Bounds:RestoreBounds;
+            WindowState=FormWindowState.Normal;
+            FormBorderStyle=FormBorderStyle.None;
+            Bounds=screen;
+            status.Visible=false;
+            if(chrome==null){
+                chrome=new FullscreenChrome(this,toolbar,null,delegate(Keys key){var message=new Message();return ProcessCmdKey(ref message,key);});
+                chrome.TopInsetChanged+=canvas.SetDetailsTopInset;
+            }
+            chrome.Enable();
+        }else{
+            chrome.DockToolbarInOwner();
+            canvas.BringToFront();
+            FormBorderStyle=FormBorderStyle.Sizable;
+            Bounds=oldBounds;
+            WindowState=oldState;
+            status.Visible=true;
+        }
+        imageModeButton.Text=enabled?ComponentSetup.Say("창 모드","Windowed mode"):ComponentSetup.Say("전체화면","Fullscreen");
+        imageModeButton.ToolTipText=imageModeButton.Text+" (Alt+Enter)";
+        canvas.Focus();
     }
-    void Fullscreen(){if(full)ExitFullscreen();else OpenSelectedFullscreen();}
+    void ExitImageView(){
+        if(full){SetImageFullscreen(false);MinimumSize=galleryMinimumSize;}
+
+        StopSlide();full=false;canvas.Visible=false;Controls.Remove(canvas);browser.Visible=true;toolbar.Visible=false;status.Visible=true;
+        if(browsingFolder!=null)Browse(browsingFolder);if(album.Image!=null)SyncExplorer();fileList.Focus();UpdateBrowserInfo();
+    }
+    void Fullscreen(){if(full)SetImageFullscreen(!imageFullscreen);else OpenSelectedImage(true);}
     void ShowPicker(){
         if(busy)return;StopSlide();string[] files=full?album.Files:browserFiles;if(files.Length==0)return;
         int selected=full?album.Index:(fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0);

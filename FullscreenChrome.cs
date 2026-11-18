@@ -25,23 +25,32 @@ sealed class FullscreenChrome : IDisposable {
     readonly Overlay top=new Overlay(),bottom=new Overlay();
     readonly ToolStrip toolbar;
     readonly Control footer;
+    readonly int dockedFooterHeight;
     readonly Timer timer=new Timer{Interval=30};
     readonly ToolStripButton pin=new ToolStripButton(Ui.T("고정")){CheckOnClick=true,Alignment=ToolStripItemAlignment.Right,DisplayStyle=ToolStripItemDisplayStyle.Image,Overflow=ToolStripItemOverflow.Never,AutoSize=false,Width=48,Height=40,ImageScaling=ToolStripItemImageScaling.None,ToolTipText=Ui.T("메뉴와 재생바를 항상 표시합니다")};
-    readonly Button close=new Button{Size=new Size(46,32),FlatStyle=FlatStyle.Flat,TabStop=false,Anchor=AnchorStyles.Top|AnchorStyles.Right,AccessibleName="LumaView 종료 / Exit"};
+    readonly Button close=new Button{Size=new Size(46,32),FlatStyle=FlatStyle.Flat,TabStop=false,Anchor=AnchorStyles.Top|AnchorStyles.Right,AccessibleName="DollView 종료 / Exit"};
     readonly Label versionLabel=new Label{Text=AppUpdater.AppTitle,Location=new Point(12,6),Height=22,AutoEllipsis=true};
     readonly Bitmap pinOff=DrawIcon(false,false),pinOn=DrawIcon(true,false),closeIcon=DrawIcon(false,true);
     DateTime topUntil,bottomUntil;
     bool enabled,disposed;
+    internal event Action<int> TopInsetChanged;
+    void ReportTopInset(){
+        var handler=TopInsetChanged;
+        if(handler!=null)handler(top.Visible?top.Height:0);
+    }
     public FullscreenChrome(Form owner,ToolStrip toolbar,Control footer,Func<Keys,bool> shortcut){
         this.owner=owner;this.toolbar=toolbar;this.footer=footer;
+        dockedFooterHeight=footer==null?0:footer.Height;
         top.Font=bottom.Font=owner.Font;top.Shortcut=bottom.Shortcut=shortcut;
         toolbar.Dock=DockStyle.Top;toolbar.BackColor=top.BackColor;toolbar.ForeColor=Color.FromArgb(235,238,243);
         toolbar.Renderer=new ToolStripProfessionalRenderer(new ChromeColors());
         pin.Image=pinOff;close.Image=closeIcon;
-        pin.AccessibleName=Ui.T("고정");close.AccessibleName="LumaView 종료 / Exit";
+        pin.AccessibleName=Ui.T("고정");close.AccessibleName="DollView 종료 / Exit";
         top.Padding=new Padding(0,32,0,0);
         toolbar.Items.Add(pin);top.Controls.Add(toolbar);top.Controls.Add(close);top.Controls.Add(versionLabel);
         top.SizeChanged+=delegate{close.Location=new Point(top.ClientSize.Width-close.Width,0);versionLabel.Width=Math.Max(1,top.ClientSize.Width-close.Width-24);};
+        top.VisibleChanged+=delegate{ReportTopInset();};
+        top.SizeChanged+=delegate{ReportTopInset();};
         close.Click+=delegate{
             Form root=owner;while(root.Owner!=null)root=root.Owner;
             if(root!=owner){var main=root;main.BeginInvoke((Action)delegate{if(!main.IsDisposed)main.Close();});}
@@ -54,7 +63,18 @@ sealed class FullscreenChrome : IDisposable {
     }
     void StyleClose(){close.FlatAppearance.BorderSize=0;close.FlatAppearance.MouseOverBackColor=Color.FromArgb(232,17,35);close.FlatAppearance.MouseDownBackColor=Color.FromArgb(180,12,26);close.BackColor=top.BackColor;close.BringToFront();}
     public void AddTop(Control control){top.Controls.Add(control);control.Dock=DockStyle.Top;toolbar.BringToFront();Ui.Apply(top);StyleClose();}
-    public void Enable(){enabled=true;toolbar.Visible=true;Reveal();timer.Start();Tick();}
+    public void Enable(){
+        if(toolbar.Parent!=top){top.Controls.Add(toolbar);toolbar.BringToFront();}
+        if(footer!=null&&footer.Parent!=bottom){bottom.Controls.Add(footer);footer.Dock=DockStyle.Fill;}
+        pin.Available=true;enabled=true;toolbar.Visible=true;Reveal();timer.Start();Tick();
+    }
+    internal void DockToolbarInOwner(){
+        Disable();
+        pin.Available=false;
+        owner.Controls.Add(toolbar);
+        toolbar.BringToFront();
+        if(footer!=null){owner.Controls.Add(footer);footer.Dock=DockStyle.Bottom;footer.Height=dockedFooterHeight;footer.BringToFront();}
+    }
     public void Disable(){enabled=false;timer.Stop();top.Hide();bottom.Hide();}
     public void Reveal(){topUntil=bottomUntil=DateTime.UtcNow.AddSeconds(2.2);}
     void Tick(){

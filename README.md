@@ -1,4 +1,4 @@
-# LumaView
+# DollView
 
 Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어두운/밝은/사용자 색상 테마를 지원합니다.
 
@@ -6,9 +6,9 @@ Windows용 이미지·시퀀스·영상·3D 모델 뷰어. 한국어/영어, 어
 
 Windows 10/11 64비트, .NET Framework 4.8 이상이 필요합니다.
 
-1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `LumaView-0.2.6-win-x64.zip`을 받습니다.
+1. [최신 배포](https://github.com/trackk81/LumaView/releases/latest)에서 `DollView-0.2.7-win-x64.zip`을 받습니다.
 2. ZIP 파일의 **압축을 모두 풀고** 원하는 폴더에 둡니다.
-3. 폴더 안의 `LumaView.exe`를 실행합니다. `codecs`, `model-viewer`, `video-runtime`, DLL 파일도 함께 유지하세요.
+3. 폴더 안의 `DollView.exe`를 실행합니다. `codecs`, `model-viewer`, `video-runtime`, DLL 파일도 함께 유지하세요.
 
 JPG/PNG 등을 더블클릭해서 열고 싶다면 **설정 → 파일 연결**에서 확장자를 선택하고 연결을 누르세요. Windows에서 LumaView를 최종 선택해야 하며 기존 UserChoice를 강제로 변경하지 않습니다. 연결한 뒤 프로그램 폴더를 옮겼다면 새 위치에서 다시 연결하세요.
 

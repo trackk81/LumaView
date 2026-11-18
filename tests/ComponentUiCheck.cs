@@ -16,7 +16,7 @@ class ComponentUiCheck {
     [STAThread] static int Main(string[] args){
         try{
             Application.EnableVisualStyles();
-            var app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"LumaView.exe"));
+            var app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));
             string runtime=(string)app.GetType("LumaView.ComponentSetup").GetMethod("WebViewVersion",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,null);
             if(String.IsNullOrEmpty(runtime))throw new Exception("This non-installing smoke test requires an existing WebView2 runtime.");
             using(var settings=(Form)Activator.CreateInstance(app.GetType("LumaView.SettingsDialog"))){

@@ -22,7 +22,7 @@ static class AppUpdater {
     public sealed class Update { public Version Version; public string Tag; public Asset Package,Checksums; }
     static string Say(string ko,string en){return Ui.Language=="en"?en:ko;}
     internal static Version CurrentVersion { get {var v=Assembly.GetExecutingAssembly().GetName().Version;return new Version(v.Major,v.Minor,v.Build);}}
-    internal static string AppTitle { get {return "LumaView v"+CurrentVersion;} }
+    internal static string AppTitle { get {return "DollView v"+CurrentVersion;} }
     internal static string WindowTitle(string context){return AppTitle+(String.IsNullOrEmpty(context)?"":" — "+context);}
     internal static string VersionsText(Version current,Version latest,bool checkedRelease){
         return Say("현재 실행 버전: ","Current running version: ")+"v"+current+"\n"+
@@ -42,10 +42,11 @@ static class AppUpdater {
     internal static Update ParseRelease(string json){
         var release=new JavaScriptSerializer{MaxJsonLength=1048576}.Deserialize<Release>(json);
         var version=ReleaseVersion(json);if(version==null)return null;string tag=release.tag_name;
-        string filename="LumaView-"+version+"-win-x64.zip";
         var assets=release.assets??new Asset[0];
-        var package=assets.SingleOrDefault(a=>a!=null&&a.name==filename);
-        var sums=assets.SingleOrDefault(a=>a!=null&&a.name=="SHA256SUMS.txt");
+        var package=assets.SingleOrDefault(a=>a!=null&&a.name=="DollView-"+version+"-win-x64.zip");
+        string checksumName=package==null?"SHA256SUMS.txt":"DollView-SHA256SUMS.txt";
+        if(package==null)package=assets.SingleOrDefault(a=>a!=null&&a.name=="LumaView-"+version+"-win-x64.zip");
+        var sums=assets.SingleOrDefault(a=>a!=null&&a.name==checksumName);
         if(package==null||sums==null||package.size<=0||package.size>MaxPackageBytes||sums.size<=0||sums.size>65536)throw new InvalidDataException(Say("공개 릴리스의 ZIP 또는 체크섬 파일이 없거나 올바르지 않습니다.","The release ZIP or checksum file is missing or invalid."));
         foreach(var asset in new[]{package,sums}){
             string expected="https://github.com/"+Repository+"/releases/download/"+tag+"/"+asset.name;
@@ -77,8 +78,8 @@ static class AppUpdater {
     }
     static async Task LaunchInstaller(Form owner,string folder,Version latest,UpdateFile[] files,CancellationToken token){
         string target=Path.GetDirectoryName(Application.ExecutablePath);
-        string helper=Path.Combine(folder,"LumaView.Updater.exe");
-        File.Copy(Path.Combine(target,"LumaView.Updater.exe"),helper,false);
+        string helper=Path.Combine(folder,"DollView.Updater.exe");
+        File.Copy(Path.Combine(target,"DollView.Updater.exe"),helper,false);
         UpdateJob job;using(var process=Process.GetCurrentProcess()){
             var viewer=owner as Viewer;
             job=new UpdateJob{Id=Guid.NewGuid().ToString("N"),WorkRoot=folder,TargetRoot=target,FromVersion=CurrentVersion.ToString(),ToVersion=latest.ToString(),Language=Ui.Language,ParentPid=process.Id,ParentStarted=process.StartTime.ToUniversalTime().Ticks,RestartPath=viewer==null?null:viewer.UpdateRestartPath,Files=files};
@@ -116,7 +117,7 @@ static class AppUpdater {
                     latest=ReleaseVersion(releaseJson);checkedRelease=true;
                     if(latest==null||latest<=current){MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+NoUpdateStatus(current,latest),caption,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
                     var update=ParseRelease(releaseJson);
-                    if(MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("새 버전으로 업데이트할까요?\n파일 검증 후 LumaView를 종료하고 현재 폴더에 설치한 다음 자동으로 다시 실행합니다.\n설정은 유지됩니다.","Install the new version?\nAfter verification, LumaView will close, update in its current folder, and reopen automatically.\nYour settings will be kept."),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
+                    if(MessageBox.Show(owner,VersionsText(current,latest,true)+"\n\n"+Say("새 버전으로 업데이트할까요?\n파일 검증 후 DollView를 종료하고 현재 폴더에 설치한 다음 자동으로 다시 실행합니다.\n설정은 유지됩니다.","Install the new version?\nAfter verification, DollView will close, update in its current folder, and reopen automatically.\nYour settings will be kept."),caption,MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
                     UpdateFiles.CheckWritable(Path.GetDirectoryName(Application.ExecutablePath));
                     string sums=await ReadSmall(client,update.Checksums.browser_download_url,65536,cancel.Token);
                     string expected=ExpectedHash(sums,update.Package.name);

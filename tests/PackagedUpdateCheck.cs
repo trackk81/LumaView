@@ -1,10 +1,12 @@
+using System.Linq;
 using System;using System.IO;using System.Diagnostics;using System.Threading;using LumaView;
 class PackagedUpdateCheck {
  static void Wait(Func<bool> ready,string message){var watch=Stopwatch.StartNew();while(!ready()&&watch.Elapsed<TimeSpan.FromSeconds(90))Thread.Sleep(100);if(!ready())throw new Exception(message);}
  static int Main(string[] args){Process original=null;try{
-  string target=Path.GetFullPath(args[0]),zip=Path.GetFullPath(args[1]),work=Path.GetFullPath(args[2]),helper=Path.Combine(work,"LumaView.Updater.exe");Directory.CreateDirectory(work);
+  string target=Path.GetFullPath(args[0]),zip=Path.GetFullPath(args[1]),work=Path.GetFullPath(args[2]),helper=Path.Combine(work,"DollView.Updater.exe");Directory.CreateDirectory(work);
   string pictures=Path.Combine(target,"test pictures");Directory.CreateDirectory(pictures);
-  var files=UpdateFiles.Extract(zip,Path.Combine(work,"payload"),args[3]);File.Copy(Path.Combine(work,"payload","LumaView.Updater.exe"),helper);
+  var files=UpdateFiles.Extract(zip,Path.Combine(work,"payload"),args[3]);
+  File.Copy(Path.Combine(target,"LumaView.Updater.exe"),helper);
   original=Process.Start(new ProcessStartInfo(Path.Combine(target,"LumaView.exe"),UpdateFiles.Quote(pictures)){UseShellExecute=false});
   Wait(()=>{original.Refresh();return original.MainWindowHandle!=IntPtr.Zero;},"Previous app window did not open");
   string previous=FileVersionInfo.GetVersionInfo(Path.Combine(target,"LumaView.exe")).FileVersion;previous=previous.Substring(0,previous.LastIndexOf('.'));
@@ -15,11 +17,15 @@ class PackagedUpdateCheck {
    Wait(()=>File.Exists(Path.Combine(work,"result.json"))||worker.HasExited,"No update result");
    string result=File.ReadAllText(Path.Combine(work,"result.json"));if(!result.Contains("\"success\""))throw new Exception(result);
    if(!worker.WaitForExit(10000))throw new Exception("Installer did not finish");
-   Console.WriteLine("PASS packaged application: "+previous+" -> "+args[3]+" in the same directory, old process closed, new window acknowledged");Console.WriteLine(result);
+   string renamed=Path.Combine(target,"DollView.exe");
+   var version=FileVersionInfo.GetVersionInfo(renamed);
+   if(version.ProductName!="DollView"||version.FileVersion!=args[3]+".0")throw new Exception("Renamed executable version mismatch");
+   if(!Process.GetProcessesByName("DollView").Any(p=>{using(p){try{return String.Equals(p.MainModule.FileName,renamed,StringComparison.OrdinalIgnoreCase);}catch(System.ComponentModel.Win32Exception){return false;}catch(InvalidOperationException){return false;}}}))throw new Exception("DollView process did not start");
+   Console.WriteLine("PASS legacy updater: "+previous+" -> "+args[3]+" in the same directory, DollView.exe launched and acknowledged");Console.WriteLine(result);
   }
   return 0;
  }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}finally{
   if(original!=null){if(!original.HasExited){original.CloseMainWindow();if(!original.WaitForExit(3000))original.Kill();}original.Dispose();}
-  foreach(var process in Process.GetProcessesByName("LumaView"))using(process){try{if(String.Equals(process.MainModule.FileName,Path.Combine(Path.GetFullPath(args[0]),"LumaView.exe"),StringComparison.OrdinalIgnoreCase)){process.CloseMainWindow();if(!process.WaitForExit(3000))process.Kill();}}catch(InvalidOperationException){}}
+  foreach(var process in Process.GetProcessesByName("DollView").Concat(Process.GetProcessesByName("LumaView")))using(process){try{if(String.Equals(process.MainModule.FileName,Path.Combine(Path.GetFullPath(args[0]),process.ProcessName+".exe"),StringComparison.OrdinalIgnoreCase)){process.CloseMainWindow();if(!process.WaitForExit(3000))process.Kill();}}catch(InvalidOperationException){}}
  }}
 }

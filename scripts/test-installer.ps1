@@ -8,7 +8,7 @@ New-Item -ItemType Directory -Path $runRoot | Out-Null
 $setupFull=(Resolve-Path -LiteralPath $SetupPath).Path
 $extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
 # Snapshot only LumaView-owned registration trees. Never touch FileExts/UserChoice.
-$trees=@('Software\LumaView\Capabilities','Software\LumaView\SelectedCapabilities','Software\Classes\Applications\LumaView.exe')
+$trees=@('Software\LumaView\Capabilities','Software\LumaView\SelectedCapabilities','Software\Classes\Applications\DollView.exe')
 $trees += $extensions | ForEach-Object { 'Software\Classes\LumaView.File.'+$_ }
 $backups=@{}; $values=@{}
 foreach ($tree in $trees) {
@@ -28,9 +28,9 @@ foreach ($item in $valuePaths) {
 try {
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS="assoc_jpg,assoc_png"',('/DIR="'+$installRoot+'"'),('/LOG="'+(Join-Path $runRoot 'install.log')+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Setup failed: $($process.ExitCode)" }
-    foreach ($file in @('LumaView.exe','unins000.exe','codecs\magick.exe','model-viewer\viewer.js','Microsoft.Web.WebView2.Core.dll')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $file))) { throw "Missing payload: $file" } }
+    foreach ($file in @('DollView.exe','unins000.exe','codecs\magick.exe','model-viewer\viewer.js','Microsoft.Web.WebView2.Core.dll')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $file))) { throw "Missing payload: $file" } }
     $command=(Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Classes\LumaView.File.jpg\shell\open\command').'(default)'
-    if ($command -ne ('"'+$installRoot+'\LumaView.exe" "%1"')) { throw 'Installed association command mismatch' }
+    if ($command -ne ('"'+$installRoot+'\DollView.exe" "%1"')) { throw 'Installed association command mismatch' }
     $selected=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\LumaView\SelectedCapabilities\FileAssociations')
     try { if (($selected.GetValueNames() | Sort-Object) -join ',' -ne '.jpg,.png') { throw 'Selected extension filter mismatch' } } finally { $selected.Dispose() }
     Write-Output 'PASS silent installation, required payload, association command and selected defaults profile'
@@ -39,7 +39,7 @@ try {
     if ($process.ExitCode -ne 0) { throw 'Upgrade installation failed' }
     Write-Output 'PASS in-place reinstall'
     $uninstall=Start-Process -FilePath (Join-Path $installRoot 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
-    if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath (Join-Path $installRoot 'LumaView.exe'))) { throw 'Uninstall failed' }
+    if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath (Join-Path $installRoot 'DollView.exe'))) { throw 'Uninstall failed' }
     if (Test-Path -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Classes\LumaView.File.jpg') { throw 'Registration cleanup failed' }
     Write-Output 'PASS uninstall and registration cleanup'
 } finally {
