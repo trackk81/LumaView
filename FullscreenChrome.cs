@@ -3,6 +3,21 @@ using System.Drawing;
 using System.Windows.Forms;
 
 namespace LumaView {
+class MediaViewerForm : Form {
+    internal bool ExitApplicationRequested {get;private set;}
+    internal void ExitApplication(){
+        ExitApplicationRequested=true;
+        Close();
+    }
+    protected override void WndProc(ref Message message){
+        const int SystemCommand=0x0112,CloseCommand=0xf060;
+        if(message.Msg==SystemCommand&&(message.WParam.ToInt64()&0xfff0)==CloseCommand){
+            ExitApplication();
+            return;
+        }
+        base.WndProc(ref message);
+    }
+}
 // .NET Framework ToolStrip normally consumes the click that activates its window.
 // Our toolbar lives in a separate owned window, so this must be allowed through
 // on every return from the image/WebView/video surface, not only on application entry.
@@ -52,9 +67,9 @@ sealed class FullscreenChrome : IDisposable {
         top.VisibleChanged+=delegate{ReportTopInset();};
         top.SizeChanged+=delegate{ReportTopInset();};
         close.Click+=delegate{
-            Form root=owner;while(root.Owner!=null)root=root.Owner;
-            if(root!=owner){var main=root;main.BeginInvoke((Action)delegate{if(!main.IsDisposed)main.Close();});}
-            owner.Close();
+            var media=owner as MediaViewerForm;
+            if(media!=null)media.ExitApplication();
+            else owner.Close();
         };
         if(footer!=null){footer.Dock=DockStyle.Fill;bottom.Controls.Add(footer);}
         pin.CheckedChanged+=delegate{pin.Image=pin.Checked?pinOn:pinOff;pin.AccessibleName=pin.Checked?Ui.T("고정됨"):Ui.T("고정");Reveal();owner.Activate();};

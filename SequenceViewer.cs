@@ -30,7 +30,7 @@ static class Sequences {
         using(var font=new Font("Segoe UI",13,FontStyle.Bold))using(var brush=new SolidBrush(Color.FromArgb(151,232,216)))using(var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center})g.DrawString("SQ",font,brush,new RectangleF(x-23,y-23,46,46),format);
     }}
 }
-sealed class SequenceViewer : Form {
+sealed class SequenceViewer : MediaViewerForm {
     readonly string[] frames;
     readonly Canvas view=new Canvas();
     readonly ToolStrip tools=new ViewerToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
@@ -221,7 +221,7 @@ sealed class SequenceViewer : Form {
         }finally{decoding.Remove(target);if(!closed)Pump();}
     }
     readonly HashSet<int> failed=new HashSet<int>();
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(key==(Keys.Alt|Keys.Enter)){ToggleFullscreen();return true;}if(key==Keys.Escape){if(fullscreen)ToggleFullscreen();else Close();return true;}if(rate.ContainsFocus){if(key==Keys.Enter){view.Focus();return true;}return base.ProcessCmdKey(ref msg,key);}switch(key){case Keys.Space:Toggle();return true;case Keys.D:Step(-1);return true;case Keys.F:Step(1);return true;case Keys.Left:Jump(-(int)Math.Round(5*fps));return true;case Keys.Right:Jump((int)Math.Round(5*fps));return true;case Keys.Home:Request(0);return true;case Keys.End:Request(frames.Length-1);return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){if(key==(Keys.Alt|Keys.Enter)){ToggleFullscreen();return true;}if(key==Keys.Escape){Close();return true;}if(rate.ContainsFocus){if(key==Keys.Enter){view.Focus();return true;}return base.ProcessCmdKey(ref msg,key);}switch(key){case Keys.Space:Toggle();return true;case Keys.D:Step(-1);return true;case Keys.F:Step(1);return true;case Keys.Left:Jump(-(int)Math.Round(5*fps));return true;case Keys.Right:Jump((int)Math.Round(5*fps));return true;case Keys.Home:Request(0);return true;case Keys.End:Request(frames.Length-1);return true;}return base.ProcessCmdKey(ref msg,key);}
 }
 }
 

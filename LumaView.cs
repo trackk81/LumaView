@@ -307,7 +307,7 @@ partial class Viewer : Form {
     void UpdateInfo(){RefreshDetails();if(!full){UpdateBrowserInfo();return;}info.Text=album.Image==null?Ui.T("준비  ·  원본 파일을 변경하지 않습니다"):String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,Path.GetFileName(album.Current),album.Image.Width,album.Image.Height,canvas.ViewScale*100,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
         if(!folderAddress.Focused){if(key==(Keys.Control|Keys.C)){CopyFile();return true;}if(key==(Keys.Control|Keys.V)){PasteFiles();return true;}if(key==Keys.F2){RenameFile();return true;}}
-        if(key==Keys.Escape){enterAfterLoad=false;fullscreenAfterLoad=false;if(imageFullscreen)SetImageFullscreen(false);else if(full)ExitImageView();StopSlide();return true;}
+        if(key==Keys.Escape){enterAfterLoad=false;fullscreenAfterLoad=false;if(full)ExitImageView();StopSlide();return true;}
         if(key==(Keys.Alt|Keys.Enter)){Fullscreen();return true;}
         if(key==(Keys.Control|Keys.B)){ToggleExplorer();return true;}
         if(key==Keys.Enter && !folderAddress.Focused){ShowPicker();return true;}

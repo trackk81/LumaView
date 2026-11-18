@@ -92,11 +92,12 @@ partial class Viewer {
         var area=Screen.FromControl(this).WorkingArea;
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
-        playbackActive=true;try{using(var player=new VideoViewer(path,bounds))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitImageView();}}
+        playbackActive=true;try{using(var player=new VideoViewer(path,bounds))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening&&!IsDisposed){startupOpening=false;ExitImageView();}}
+        if(IsDisposed)return;
         fileList.Focus();UpdateBrowserInfo();
     }
 }
-sealed class VideoViewer : Form {
+sealed class VideoViewer : MediaViewerForm {
     readonly VideoSurface host=new VideoSurface();
     readonly ToolStrip tools=new ViewerToolStrip();
     readonly Label title=new Label(),details=new Label(),timing=new Label();
@@ -241,6 +242,6 @@ sealed class VideoViewer : Form {
     internal static double FrameTarget(double position,int direction,double fps,double length){double frame=Math.Floor(position*fps+.0001)+direction;return Math.Max(0,Math.Min(Math.Max(0,Math.Ceiling(length*fps)-1),frame))/fps;}
     void ApplyFlip(){string filter=flipHorizontal?(flipVertical?"hflip,vflip":"hflip"):(flipVertical?"vflip":"");Send("set_property","vf",filter);}
     void Next(int delta){int next=Math.Max(0,Math.Min(files.Length-1,index+delta));if(next!=index){index=next;LoadCurrent();}}
-    protected override bool ProcessCmdKey(ref Message msg,Keys key){switch(key){case Keys.Alt|Keys.Enter:ToggleFullscreen();return true;case Keys.Escape:if(fullscreen)ToggleFullscreen();else Close();return true;case Keys.Space:Toggle();return true;case Keys.Left:Seek(-5);return true;case Keys.Right:Seek(5);return true;case Keys.D:StepFrame(-1);return true;case Keys.F:StepFrame(1);return true;case Keys.PageDown:Next(1);return true;case Keys.PageUp:Next(-1);return true;case Keys.Home:if(ready)QueueSeek(0);return true;}return base.ProcessCmdKey(ref msg,key);}
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){switch(key){case Keys.Alt|Keys.Enter:ToggleFullscreen();return true;case Keys.Escape:Close();return true;case Keys.Space:Toggle();return true;case Keys.Left:Seek(-5);return true;case Keys.Right:Seek(5);return true;case Keys.D:StepFrame(-1);return true;case Keys.F:StepFrame(1);return true;case Keys.PageDown:Next(1);return true;case Keys.PageUp:Next(-1);return true;case Keys.Home:if(ready)QueueSeek(0);return true;}return base.ProcessCmdKey(ref msg,key);}
 }
 }

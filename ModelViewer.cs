@@ -51,13 +51,13 @@ partial class Viewer {
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
         try{using(var player=new ModelViewer(path,bounds))ShowMediaViewer(player);}
-        finally{playbackActive=false;if(startupOpening){startupOpening=false;ExitImageView();}else if(!IsDisposed)Browse(directory);}
+        finally{playbackActive=false;if(startupOpening&&!IsDisposed){startupOpening=false;ExitImageView();}}
         if(IsDisposed)return;
         foreach(ListViewItem item in fileList.Items)if(String.Equals(item.Tag as string,path,StringComparison.OrdinalIgnoreCase)){item.Selected=true;item.EnsureVisible();}
         fileList.Focus();UpdateBrowserInfo();
     }
 }
-sealed class ModelViewer:Form {
+sealed class ModelViewer:MediaViewerForm {
     readonly WebView2 web=new WebView2{Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(32,35,40)};
     readonly ToolStrip tools=new ViewerToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
     readonly Label status=new Label{Dock=DockStyle.Fill,ForeColor=Color.White,TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(12,4,12,4)};
@@ -115,7 +115,7 @@ sealed class ModelViewer:Form {
         UpdateDetailsOverlay();
         web.Focus();
     }
-    void EscapeView(){if(fullscreen)ToggleFullscreen();else Close();}
+    void EscapeView(){Close();}
     ToolStripButton Add(string label,Action action){var button=new ToolStripButton(label){Padding=new Padding(4,3,4,3)};button.Click+=delegate{action();};tools.Items.Add(button);return button;}
     void Toggle(string label,string command,bool initial){var b=Add(label,delegate{Command(command);});b.CheckOnClick=true;b.Checked=initial;b.Enabled=false;b.Tag="model";visualButtons[command]=b;if(command=="ssao")b.ToolTipText=Ui.T("접촉부 음영을 표시합니다. 플랫 컬러에서는 적용하지 않습니다.");}
     async void Command(string action){if(!ready||closing)return;try{await web.CoreWebView2.ExecuteScriptAsync("window.modelCommand("+json.Serialize(action)+")");web.Focus();}catch(Exception ex){if(!closing)status.Text=ex.Message;}}
