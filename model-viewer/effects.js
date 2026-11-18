@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {SSAOPass} from 'three/addons/postprocessing/SSAOPass.js';
-import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {BloomPass} from './bloom.js';
+import {LineSegments2} from 'three/addons/lines/LineSegments2.js';
+import {LineSegmentsGeometry} from 'three/addons/lines/LineSegmentsGeometry.js';
+import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import {OutlinePass} from 'three/addons/postprocessing/OutlinePass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
@@ -13,7 +16,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
  const settings={...defaults},toonCache=new Map();
  let composer,base,ao,bloom,outline,grade,fxaa,ground,light,model,radius=1;
  const edgeScene=new THREE.Scene();
- const edgeMaterial=new THREE.LineBasicMaterial({color:0x17191d,toneMapped:false});
+ const edgeMaterial=new LineMaterial({color:0x17191d,toneMapped:false,alphaToCoverage:false});
  const edgeGeometry=new Map(),edgeMeshes=[];
  const instanceMatrix=new THREE.Matrix4();
  function addHardEdges(){
@@ -22,13 +25,15 @@ export function createEffects(renderer,scene,camera,changed,environment){
    if(!mesh.isMesh||mesh.isSkinnedMesh||mesh.morphTargetInfluences?.some(weight=>weight!==0))return;
    let geometry=edgeGeometry.get(mesh.geometry);
    if(!geometry){
-    geometry=new THREE.EdgesGeometry(mesh.geometry,30);
+    const edges=new THREE.EdgesGeometry(mesh.geometry,30);
+    geometry=new LineSegmentsGeometry().fromEdgesGeometry(edges);
+    edges.dispose();
     edgeGeometry.set(mesh.geometry,geometry);
    }
-   if(!geometry.attributes.position.count)return;
+   if(!geometry.instanceCount)return;
    const count=mesh.isInstancedMesh?mesh.count:1;
    for(let index=0;index<count;index++){
-    const line=new THREE.LineSegments(geometry,edgeMaterial);
+    const line=new LineSegments2(geometry,edgeMaterial);
     line.matrixAutoUpdate=false;
     edgeScene.add(line);
     edgeMeshes.push({mesh,line,index});
@@ -37,6 +42,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
  }
  function renderHardEdges(){
   addHardEdges();
+  edgeMaterial.linewidth=settings.outlineWidth*renderer.getPixelRatio();
   for(const {mesh,line,index} of edgeMeshes){
    line.visible=true;
    for(let parent=mesh;parent;parent=parent.parent)if(!parent.visible){line.visible=false;break;}
@@ -64,7 +70,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
   ao.copyMaterial.uniforms.aoStrength={value:1};
   ao.copyMaterial.fragmentShader=ao.copyMaterial.fragmentShader.replace('uniform float opacity;','uniform float opacity; uniform float aoStrength;').replace('gl_FragColor = opacity * texel;','gl_FragColor = vec4(mix(vec3(1.0),texel.rgb,aoStrength),1.0);');
   composer.addPass(ao);
-  bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),.45,.35,1);composer.addPass(bloom);
+  bloom=new BloomPass();composer.addPass(bloom);
   outline=new OutlinePass(new THREE.Vector2(innerWidth,innerHeight),scene,camera);
   outline.visibleEdgeColor.set(0xffffff);outline.hiddenEdgeColor.set(0x000000);
   outline.overlayMaterial.blending=THREE.NormalBlending;
