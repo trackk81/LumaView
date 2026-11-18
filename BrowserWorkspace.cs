@@ -15,7 +15,7 @@ partial class Viewer {
     readonly TreeView folders=new TreeView();
     readonly ShellIcons shellIcons=new ShellIcons();
     readonly ListView fileList=new ListView();
-    readonly ImageList thumbnails=new ImageList();
+    ImageList thumbnails;
     readonly SemaphoreSlim thumbnailWorker=new SemaphoreSlim(1,1);
     string browsingFolder, loadedGalleryFolder, pendingGallerySelection;
     bool galleryLoading, galleryClosing;
@@ -58,8 +58,7 @@ partial class Viewer {
         folders.AfterSelect+=delegate(object sender,TreeViewEventArgs e){if(!syncingTree && e.Node.Tag is string)Browse((string)e.Node.Tag);};
         split.Panel1.Padding=new Padding(14,14,10,12);split.Panel1.Controls.Add(folders);
         split.Panel1.Controls.Add(new Label{Text=ComponentSetup.Say("폴더","FOLDERS"),Dock=DockStyle.Top,Height=34,Font=new Font("Segoe UI",9,FontStyle.Bold)});
-        thumbnails.ImageSize=new Size(160,120);thumbnails.ColorDepth=ColorDepth.Depth32Bit;
-        using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
+        thumbnails=CreateGalleryImages();
         fileList.Dock=DockStyle.Fill;fileList.View=View.LargeIcon;fileList.LargeImageList=thumbnails;fileList.MultiSelect=false;fileList.HideSelection=false;fileList.BackColor=Color.FromArgb(40,43,48);fileList.ForeColor=Color.Gainsboro;fileList.BorderStyle=BorderStyle.None;fileList.ShowItemToolTips=true;
         fileList.HandleCreated+=delegate{ModernUi.GallerySpacing(fileList);};fileList.FontChanged+=delegate{ModernUi.GallerySpacing(fileList);};
         fileList.ItemActivate+=delegate{OpenSelectedImage();};
@@ -68,7 +67,7 @@ partial class Viewer {
         canvas.Visible=false;
         Shown+=delegate{if(!startupOpening && browsingFolder==null)Browse(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));};
         FormClosing+=delegate{galleryClosing=true;folderVersion++;};
-        Disposed+=delegate{thumbnails.Dispose();shellIcons.Dispose();};
+        Disposed+=delegate{if(thumbnails!=null)thumbnails.Dispose();shellIcons.Dispose();};
     }
     void AddRoot(string name,string path){if(!String.IsNullOrEmpty(path))folders.Nodes.Add(FolderNode(name,path));}
     sealed class FolderTreeNode:TreeNode {
@@ -156,15 +155,14 @@ partial class Viewer {
             try{
                 sequenceGroups=listing.Sequences;
                 browserFiles=listing.Files;
-                thumbnails.Images.Clear();
-                using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
+                var oldThumbnails=thumbnails;
+                thumbnails=CreateGalleryImages();
+                fileList.LargeImageList=thumbnails;
+                oldThumbnails.Dispose();
                 var items=new ListViewItem[browserFiles.Length];
                 for(int i=0;i<items.Length;i++){
-                    string file=browserFiles[i];string[] sequence;
-                    bool grouped=sequenceGroups.TryGetValue(file,out sequence);
-                    items[i]=new ListViewItem(Path.GetFileName(file)+(grouped?"  ["+sequence.Length+Ui.T(" 프레임]"):""),0){
-                        Tag=file,ToolTipText=file+(grouped?Ui.T("\nSQ 시퀀스 · ")+sequence.Length+Ui.T(" 프레임"):"")
-                    };
+                    items[i]=new ListViewItem("",0){Tag=browserFiles[i]};
+                    ApplyGalleryItemText(items[i]);
                 }
                 fileList.Items.AddRange(items);
                 loadedGalleryFolder=path;
@@ -180,6 +178,18 @@ partial class Viewer {
             info.Text=Ui.T("폴더를 열 수 없습니다");
             info.ToolTipText=ex.Message;
         }
+    }
+    static ImageList CreateGalleryImages(){
+        var images=new ImageList{ImageSize=new Size(160,120),ColorDepth=ColorDepth.Depth32Bit};
+        using(var placeholder=MakePlaceholder("…")){images.Images.Add(placeholder);var handle=images.Handle;}
+        return images;
+    }
+    void ApplyGalleryItemText(ListViewItem item){
+        string file=(string)item.Tag;
+        string[] sequence;
+        bool grouped=sequenceGroups.TryGetValue(file,out sequence);
+        item.Text=Path.GetFileName(file)+(grouped?"  ["+sequence.Length+Ui.T(" 프레임]"):"");
+        item.ToolTipText=file+(grouped?Ui.T("\nSQ 시퀀스 · ")+sequence.Length+Ui.T(" 프레임"):"");
     }
     void SelectGalleryFile(string path,bool selectFirst=false){
         string[] group=path==null?null:sequenceGroups.Values.FirstOrDefault(items=>items.Contains(path,StringComparer.OrdinalIgnoreCase));

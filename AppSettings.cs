@@ -354,7 +354,8 @@ partial class Viewer {
     void ShowSettings(){using(var dialog=new SettingsDialog())if(dialog.ShowDialog(this)==DialogResult.OK){
         foreach(Form form in Application.OpenForms)Ui.Apply(form);Ui.Apply(toolbar);Ui.Apply(canvas.ContextMenuStrip);
         foreach(TreeNode node in folders.Nodes)node.Text=Ui.T(node.Text);
-        string selected=FileCommandPath();if(!full)RefreshFileSelection(selected);UpdateInfo();
+        foreach(ListViewItem item in fileList.Items)ApplyGalleryItemText(item);
+        UpdateInfo();
     }}
 }
 }
