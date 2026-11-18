@@ -18,7 +18,7 @@ partial class Viewer {
     readonly ImageList thumbnails=new ImageList();
     readonly SemaphoreSlim thumbnailWorker=new SemaphoreSlim(1,1);
     string browsingFolder, loadedGalleryFolder, pendingGallerySelection;
-    bool galleryLoading;
+    bool galleryLoading, galleryClosing;
     string[] browserFiles=new string[0];
     System.Collections.Generic.Dictionary<string,string[]> sequenceGroups=new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
     bool groupSequences=true;
@@ -67,7 +67,8 @@ partial class Viewer {
         split.Panel2.Controls.Add(fileList);browser.Controls.Add(split);browser.Controls.Add(addressBar);Controls.Add(browser);
         canvas.Visible=false;
         Shown+=delegate{if(!startupOpening && browsingFolder==null)Browse(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));};
-        FormClosed+=delegate{folderVersion++;thumbnails.Dispose();shellIcons.Dispose();};
+        FormClosing+=delegate{galleryClosing=true;folderVersion++;};
+        Disposed+=delegate{thumbnails.Dispose();shellIcons.Dispose();};
     }
     void AddRoot(string name,string path){if(!String.IsNullOrEmpty(path))folders.Nodes.Add(FolderNode(name,path));}
     sealed class FolderTreeNode:TreeNode {
@@ -86,7 +87,7 @@ partial class Viewer {
         folder.ExpandMarker.Text=Ui.T("불러오는 중…");
         try{
             string[] paths=await Task.Run(()=>Directory.GetDirectories((string)node.Tag).OrderBy(path=>path,new NaturalSort()).ToArray());
-            if(IsDisposed||node.TreeView!=folders)return;
+            if(galleryClosing||IsDisposed||node.TreeView!=folders)return;
             node.Nodes.Remove(folder.ExpandMarker);
             var children=node.Nodes.Cast<TreeNode>().Where(child=>child.Tag is string)
                 .ToDictionary(child=>(string)child.Tag,StringComparer.OrdinalIgnoreCase);
@@ -125,7 +126,7 @@ partial class Viewer {
     }
     void ToggleExplorer(){if(full){ExitImageView();return;}split.Panel1Collapsed=!split.Panel1Collapsed;}
     async void Browse(string path,string selected=null){
-        if(full)return;
+        if(full||galleryClosing)return;
         int version=++folderVersion;
         try{
             path=Path.GetFullPath(path);
@@ -221,7 +222,7 @@ partial class Viewer {
             }
         }finally{thumbnailWorker.Release();}
     }
-    void UpdateBrowserInfo(){if(full || busy || galleryLoading)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
+    void UpdateBrowserInfo(){if(full||busy||galleryLoading||galleryClosing||Disposing)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
     void SyncExplorer(){
         if(!full)ShowFileFolder(album.Current);
     }
