@@ -87,13 +87,13 @@ partial class Viewer {
     void OpenVideo(string path){
         StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;
         if(full&&!startupOpening)ExitImageView();
-        string dir=Path.GetDirectoryName(Path.GetFullPath(path));if(!String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
-        foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals((string)item.Tag,path,StringComparison.OrdinalIgnoreCase);if(item.Selected)item.EnsureVisible();}
+        ShowFileFolder(path);
         var area=Screen.FromControl(this).WorkingArea;
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
         playbackActive=true;try{using(var player=new VideoViewer(path,bounds))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening&&!IsDisposed){startupOpening=false;ExitImageView();}}
         if(IsDisposed)return;
+        ShowFileFolder(path);
         fileList.Focus();UpdateBrowserInfo();
     }
 }

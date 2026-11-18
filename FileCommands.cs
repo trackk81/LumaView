@@ -69,8 +69,7 @@ partial class Viewer {
         else RefreshFileSelection(target);
     }
     void RefreshFileSelection(string selected){
-        Browse(browsingFolder);
-        foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals(item.Tag as string,selected,StringComparison.OrdinalIgnoreCase);if(item.Selected){item.Focused=true;item.EnsureVisible();}}
+        Browse(browsingFolder,selected);
     }
     async void PasteFiles(){
         if(busy||fileOperation)return;

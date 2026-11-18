@@ -277,10 +277,15 @@ partial class Viewer : Form {
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
         FormClosed+=delegate{if(chrome!=null)chrome.Dispose();slide.Dispose();album.Dispose();};
         Ui.Apply(this);Ui.Apply(toolbar);
-        UpdateInfo(); if(path!=null) Shown+=delegate{
-            if(startupOpening && groupSequences && Album.Supported(path)){
-                try{sequenceGroups=Sequences.Group(Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path))));}
-                catch(IOException){}catch(UnauthorizedAccessException){}
+        UpdateInfo(); if(path!=null) Shown+=async delegate{
+            if(startupOpening&&groupSequences&&Album.Supported(path)&&
+                System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(path),@"\d{3,}$")){
+                try{
+                    var groups=await System.Threading.Tasks.Task.Run(()=>Sequences.Group(Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path)))));
+                    if(IsDisposed||!full)return;
+                    sequenceGroups=groups;
+                }catch(IOException){}catch(UnauthorizedAccessException){}
+                if(IsDisposed||!full)return;
             }
             enterAfterLoad=startupOpening;
             Open(path);

@@ -17,7 +17,8 @@ partial class Viewer {
     readonly ListView fileList=new ListView();
     readonly ImageList thumbnails=new ImageList();
     readonly SemaphoreSlim thumbnailWorker=new SemaphoreSlim(1,1);
-    string browsingFolder;
+    string browsingFolder, loadedGalleryFolder, pendingGallerySelection;
+    bool galleryLoading;
     string[] browserFiles=new string[0];
     System.Collections.Generic.Dictionary<string,string[]> sequenceGroups=new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
     bool groupSequences=true;
@@ -52,8 +53,8 @@ partial class Viewer {
         AddRoot(Ui.T("사진"),Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
         var downloads=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"Downloads");if(Directory.Exists(downloads))AddRoot(Ui.T("다운로드"),downloads);
         int computerIcon=shellIcons.Computer();var pc=new TreeNode(Ui.T("내 PC")){ImageIndex=computerIcon,SelectedImageIndex=computerIcon};folders.Nodes.Add(pc);
-        foreach(var drive in DriveInfo.GetDrives()){string label=drive.Name;try{if(drive.IsReady && drive.VolumeLabel.Length>0)label=drive.VolumeLabel+" ("+drive.Name+")";}catch{}pc.Nodes.Add(FolderNode(label,drive.Name));}pc.Expand();
-        folders.BeforeExpand+=delegate(object sender,TreeViewCancelEventArgs e){Populate(e.Node);};
+        foreach(var drive in DriveInfo.GetDrives()){string label=drive.Name;try{if(drive.DriveType!=DriveType.Network && drive.IsReady && drive.VolumeLabel.Length>0)label=drive.VolumeLabel+" ("+drive.Name+")";}catch{}pc.Nodes.Add(FolderNode(label,drive.Name));}pc.Expand();
+        folders.BeforeExpand+=delegate(object sender,TreeViewCancelEventArgs e){if(!syncingTree)Populate(e.Node);};
         folders.AfterSelect+=delegate(object sender,TreeViewEventArgs e){if(!syncingTree && e.Node.Tag is string)Browse((string)e.Node.Tag);};
         split.Panel1.Padding=new Padding(14,14,10,12);split.Panel1.Controls.Add(folders);
         split.Panel1.Controls.Add(new Label{Text=ComponentSetup.Say("폴더","FOLDERS"),Dock=DockStyle.Top,Height=34,Font=new Font("Segoe UI",9,FontStyle.Bold)});
@@ -69,12 +70,38 @@ partial class Viewer {
         FormClosed+=delegate{folderVersion++;thumbnails.Dispose();shellIcons.Dispose();};
     }
     void AddRoot(string name,string path){if(!String.IsNullOrEmpty(path))folders.Nodes.Add(FolderNode(name,path));}
-    TreeNode FolderNode(string name,string path){int icon=shellIcons.ForPath(path);var node=new TreeNode(name){Tag=path,ToolTipText=path,ImageIndex=icon,SelectedImageIndex=icon};node.Nodes.Add(new TreeNode("…"));return node;}
-    void Populate(TreeNode node){
-        if(node.Tag==null || node.Nodes.Count!=1 || node.Nodes[0].Tag!=null || node.Nodes[0].Text!="…")return;
-        node.Nodes.Clear();
-        try{foreach(string p in Directory.GetDirectories((string)node.Tag).OrderBy(p=>p,new NaturalSort()))node.Nodes.Add(FolderNode(Path.GetFileName(p),p));}
-        catch(UnauthorizedAccessException){node.Nodes.Add(Ui.T("접근할 수 없음"));}catch(IOException){node.Nodes.Add(Ui.T("폴더를 읽을 수 없음"));}
+    sealed class FolderTreeNode:TreeNode {
+        internal readonly TreeNode ExpandMarker=new TreeNode();
+        internal bool Loading,Loaded;
+        internal FolderTreeNode(string name):base(name){Nodes.Add(ExpandMarker);}
+    }
+    TreeNode FolderNode(string name,string path){
+        int icon=shellIcons.Folder();
+        return new FolderTreeNode(name){Tag=path,ToolTipText=path,ImageIndex=icon,SelectedImageIndex=icon};
+    }
+    async void Populate(TreeNode node){
+        var folder=node as FolderTreeNode;
+        if(folder==null||folder.Loaded||folder.Loading)return;
+        folder.Loading=true;
+        folder.ExpandMarker.Text=Ui.T("불러오는 중…");
+        try{
+            string[] paths=await Task.Run(()=>Directory.GetDirectories((string)node.Tag).OrderBy(path=>path,new NaturalSort()).ToArray());
+            if(IsDisposed||node.TreeView!=folders)return;
+            node.Nodes.Remove(folder.ExpandMarker);
+            var children=node.Nodes.Cast<TreeNode>().Where(child=>child.Tag is string)
+                .ToDictionary(child=>(string)child.Tag,StringComparer.OrdinalIgnoreCase);
+            folders.BeginUpdate();
+            try{
+                for(int i=0;i<paths.Length;i++){
+                    TreeNode child;
+                    if(!children.TryGetValue(paths[i],out child))
+                        node.Nodes.Insert(Math.Min(i,node.Nodes.Count),FolderNode(Path.GetFileName(paths[i]),paths[i]));
+                }
+            }finally{folders.EndUpdate();}
+            folder.Loaded=true;
+        }catch(UnauthorizedAccessException){if(!IsDisposed)folder.ToolTipText=Ui.T("접근할 수 없음");}
+        catch(IOException){if(!IsDisposed)folder.ToolTipText=Ui.T("폴더를 읽을 수 없음");}
+        finally{folder.Loading=false;folder.ExpandMarker.Text="";}
     }
     void SelectFolderNode(string path){
         syncingTree=true;
@@ -85,28 +112,90 @@ partial class Viewer {
             if(current==null){current=FolderNode(root,root);pc.Nodes.Add(current);}
             string remainder=path.Substring(root.Length);
             foreach(string part in remainder.Split(new[]{'\\','/'},StringSplitOptions.RemoveEmptyEntries)){
-                Populate(current);current.Expand();
                 string nextPath=Path.Combine((string)current.Tag,part);
                 var next=current.Nodes.Cast<TreeNode>().FirstOrDefault(n=>String.Equals(n.Tag as string,nextPath,StringComparison.OrdinalIgnoreCase));
-                if(next==null){next=FolderNode(part,nextPath);current.Nodes.Add(next);}current=next;
+                if(next==null){next=FolderNode(part,nextPath);current.Nodes.Add(next);}
+                var folder=current as FolderTreeNode;
+                if(folder!=null)folder.ExpandMarker.Remove();
+                current.Expand();
+                current=next;
             }
             folders.SelectedNode=current;current.EnsureVisible();
         }finally{syncingTree=false;}
     }
     void ToggleExplorer(){if(full){ExitImageView();return;}split.Panel1Collapsed=!split.Panel1Collapsed;}
-    void Browse(string path){
+    async void Browse(string path,string selected=null){
         if(full)return;
+        int version=++folderVersion;
         try{
-            path=Path.GetFullPath(path);string[] files=Directory.GetFiles(path).Where(MediaFiles.Supported).OrderBy(p=>p,new NaturalSort()).ToArray();
-            sequenceGroups=groupSequences?Sequences.Group(files):new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
-            var hidden=new System.Collections.Generic.HashSet<string>(sequenceGroups.Values.SelectMany(group=>group.Skip(1)),StringComparer.OrdinalIgnoreCase);files=files.Where(p=>!hidden.Contains(p)).ToArray();
-            browsingFolder=path;browserFiles=files;folderAddress.Text=path;int version=++folderVersion;
-            fileList.BeginUpdate();fileList.Items.Clear();thumbnails.Images.Clear();using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
-            foreach(string p in files){string[] sequence;bool sq=sequenceGroups.TryGetValue(p,out sequence);var item=new ListViewItem(Path.GetFileName(p)+(sq?"  ["+sequence.Length+Ui.T(" 프레임]"):""),0){Tag=p,ToolTipText=p+(sq?Ui.T("\nSQ 시퀀스 · ")+sequence.Length+Ui.T(" 프레임"):"")};fileList.Items.Add(item);}
-            fileList.EndUpdate();SelectFolderNode(path);Text=AppUpdater.WindowTitle(path);
-            if(fileList.Items.Count>0){fileList.Items[0].Selected=true;fileList.Items[0].Focused=true;}
-            UpdateBrowserInfo();LoadThumbnails(files,version);
-        }catch(Exception ex){fileList.EndUpdate();MessageBox.Show(this,ex.Message,Ui.T("폴더를 열 수 없습니다"));}
+            path=Path.GetFullPath(path);
+            if(selected==null&&String.Equals(browsingFolder,path,StringComparison.OrdinalIgnoreCase)&&fileList.SelectedItems.Count>0)
+                selected=fileList.SelectedItems[0].Tag as string;
+            browsingFolder=path;
+            pendingGallerySelection=selected;
+            loadedGalleryFolder=null;
+            galleryLoading=true;
+            folderAddress.Text=path;
+            Text=AppUpdater.WindowTitle(path);
+            info.Text=Ui.T("불러오는 중…");
+            info.ToolTipText=path;
+            browserFiles=new string[0];
+            sequenceGroups=new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
+            fileList.Items.Clear();
+            SelectFolderNode(path);
+            bool group=groupSequences;
+            var listing=await Task.Run(()=>{
+                var files=Directory.GetFiles(path).Where(MediaFiles.Supported).OrderBy(file=>file,new NaturalSort()).ToArray();
+                var sequences=group?Sequences.Group(files):new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
+                var hidden=new System.Collections.Generic.HashSet<string>(sequences.Values.SelectMany(items=>items.Skip(1)),StringComparer.OrdinalIgnoreCase);
+                return new {Files=files.Where(file=>!hidden.Contains(file)).ToArray(),Sequences=sequences};
+            });
+            if(IsDisposed||version!=folderVersion)return;
+            fileList.BeginUpdate();
+            try{
+                sequenceGroups=listing.Sequences;
+                browserFiles=listing.Files;
+                thumbnails.Images.Clear();
+                using(var placeholder=MakePlaceholder("…")){thumbnails.Images.Add(placeholder);var handle=thumbnails.Handle;}
+                var items=new ListViewItem[browserFiles.Length];
+                for(int i=0;i<items.Length;i++){
+                    string file=browserFiles[i];string[] sequence;
+                    bool grouped=sequenceGroups.TryGetValue(file,out sequence);
+                    items[i]=new ListViewItem(Path.GetFileName(file)+(grouped?"  ["+sequence.Length+Ui.T(" 프레임]"):""),0){
+                        Tag=file,ToolTipText=file+(grouped?Ui.T("\nSQ 시퀀스 · ")+sequence.Length+Ui.T(" 프레임"):"")
+                    };
+                }
+                fileList.Items.AddRange(items);
+                loadedGalleryFolder=path;
+                SelectGalleryFile(pendingGallerySelection,true);
+            }finally{fileList.EndUpdate();}
+            galleryLoading=false;
+            UpdateBrowserInfo();
+            int priority=fileList.SelectedIndices.Count==0?0:fileList.SelectedIndices[0];
+            LoadThumbnails(listing.Files,version,priority);
+        }catch(Exception ex){
+            if(IsDisposed||version!=folderVersion)return;
+            galleryLoading=false;
+            info.Text=Ui.T("폴더를 열 수 없습니다");
+            info.ToolTipText=ex.Message;
+        }
+    }
+    void SelectGalleryFile(string path,bool selectFirst=false){
+        string[] group=path==null?null:sequenceGroups.Values.FirstOrDefault(items=>items.Contains(path,StringComparer.OrdinalIgnoreCase));
+        string visiblePath=group==null?path:group[0];
+        var item=fileList.Items.Cast<ListViewItem>().FirstOrDefault(candidate=>String.Equals(candidate.Tag as string,visiblePath,StringComparison.OrdinalIgnoreCase));
+        if(item==null&&selectFirst&&fileList.Items.Count>0)item=fileList.Items[0];
+        if(item!=null){item.Selected=true;item.Focused=true;item.EnsureVisible();}
+    }
+    void ShowFileFolder(string file){
+        if(String.IsNullOrEmpty(file))return;
+        string directory=Path.GetDirectoryName(file);
+        if(galleryLoading&&String.Equals(browsingFolder,directory,StringComparison.OrdinalIgnoreCase)){
+            pendingGallerySelection=file;
+            return;
+        }
+        if(!String.Equals(loadedGalleryFolder,directory,StringComparison.OrdinalIgnoreCase))Browse(directory,file);
+        else SelectGalleryFile(file);
     }
     static Bitmap MakePlaceholder(string label){var b=new Bitmap(160,120);using(var g=Graphics.FromImage(b)){g.Clear(Color.FromArgb(55,59,65));using(var f=new Font("Segoe UI",14))using(var brush=new SolidBrush(Color.Silver))g.DrawString(label,f,brush,new RectangleF(0,45,160,40),new StringFormat{Alignment=StringAlignment.Center});}return b;}
     static Bitmap MakeThumbnail(string path){if(ModelFiles.Supported(path))return ModelFiles.Tile(path);if(MediaFiles.IsVideo(path))return MediaFiles.VideoTile(path);
@@ -119,11 +208,12 @@ partial class Viewer {
             }return b;
         }
     }
-    async void LoadThumbnails(string[] paths,int version){
+    async void LoadThumbnails(string[] paths,int version,int priority){
         await thumbnailWorker.WaitAsync();
         try{
-            for(int i=0;i<paths.Length;i++){
-                while(playbackActive&&!IsDisposed&&version==folderVersion)await Task.Delay(150);
+            for(int offset=0;offset<paths.Length;offset++){
+                int i=(priority+offset)%paths.Length;
+                while((playbackActive||full)&&!IsDisposed&&version==folderVersion)await Task.Delay(150);
                 if(IsDisposed || version!=folderVersion)return;
                 string p=paths[i];bool failed=false;
                 var bitmap=await Task.Run(delegate{try{return MakeThumbnail(p);}catch{failed=true;return MakePlaceholder(Ui.T("미리보기 없음"));}});
@@ -131,12 +221,9 @@ partial class Viewer {
             }
         }finally{thumbnailWorker.Release();}
     }
-    void UpdateBrowserInfo(){if(full || busy)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
+    void UpdateBrowserInfo(){if(full || busy || galleryLoading)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
     void SyncExplorer(){
-        string dir=Path.GetDirectoryName(album.Current);
-        if(!full && !String.Equals(dir,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(dir);
-        foreach(ListViewItem item in fileList.Items){item.Selected=String.Equals((string)item.Tag,album.Current,StringComparison.OrdinalIgnoreCase);if(item.Selected){item.Focused=true;item.EnsureVisible();}}
-        if(!full){Text=AppUpdater.WindowTitle(browsingFolder);UpdateBrowserInfo();}
+        if(!full)ShowFileFolder(album.Current);
     }
     void OpenSelectedImage(bool fullscreen=false){
         if(busy||fileList.SelectedItems.Count==0)return;
@@ -181,6 +268,7 @@ partial class Viewer {
             playbackActive=false;
             if(!IsDisposed){
                 if(startupOpening){startupOpening=false;ExitImageView();}
+                ShowFileFolder(path);
                 fileList.Focus();
             }
         }
@@ -250,7 +338,7 @@ partial class Viewer {
         Text=AppUpdater.WindowTitle(browsingFolder);
         RefreshGallerySurface();
         if(album.Image!=null)SyncExplorer();
-        else if(browsingFolder!=null&&folderAddress.Text!=browsingFolder)Browse(browsingFolder);
+        else if(browsingFolder!=null&&!galleryLoading&&!String.Equals(loadedGalleryFolder,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(browsingFolder);
         fileList.Focus();UpdateBrowserInfo();
     }
     void Fullscreen(){if(full)SetImageFullscreen(!imageFullscreen);else OpenSelectedImage(true);}

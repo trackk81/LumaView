@@ -45,7 +45,7 @@ static class ModelFiles {
 partial class Viewer {
     void OpenModel(string path){
         StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitImageView();
-        string directory=Path.GetDirectoryName(Path.GetFullPath(path));if(!String.Equals(directory,browsingFolder,StringComparison.OrdinalIgnoreCase))Browse(directory);
+        ShowFileFolder(path);
         playbackActive=true;
         var area=Screen.FromControl(this).WorkingArea;
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
@@ -53,7 +53,7 @@ partial class Viewer {
         try{using(var player=new ModelViewer(path,bounds))ShowMediaViewer(player);}
         finally{playbackActive=false;if(startupOpening&&!IsDisposed){startupOpening=false;ExitImageView();}}
         if(IsDisposed)return;
-        foreach(ListViewItem item in fileList.Items)if(String.Equals(item.Tag as string,path,StringComparison.OrdinalIgnoreCase)){item.Selected=true;item.EnsureVisible();}
+        ShowFileFolder(path);
         fileList.Focus();UpdateBrowserInfo();
     }
 }

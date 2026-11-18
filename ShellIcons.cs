@@ -21,6 +21,14 @@ sealed class ShellIcons : IDisposable {
     [DllImport("shell32.dll")] static extern int SHGetSpecialFolderLocation(IntPtr owner,int folder,out IntPtr pidl);
     [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr icon);
     const uint IconFlag=0x100,SmallIcon=1,PidlFlag=8,UseFileAttributes=0x10;
+    int? folderIcon;
+    internal int Folder(){
+        if(folderIcon.HasValue)return folderIcon.Value;
+        FileInfo info;
+        GetFileInfo("folder",0x10,out info,(uint)Marshal.SizeOf(typeof(FileInfo)),IconFlag|SmallIcon|UseFileAttributes);
+        folderIcon=Add(info);
+        return folderIcon.Value;
+    }
     public int ForPath(string path) {
         FileInfo info;
         var result=GetFileInfo(path,0,out info,(uint)Marshal.SizeOf(typeof(FileInfo)),IconFlag|SmallIcon);
