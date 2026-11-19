@@ -210,7 +210,8 @@ partial class Viewer {
     }
     static Bitmap MakePlaceholder(string label){var b=new Bitmap(160,120);using(var g=Graphics.FromImage(b)){g.Clear(Color.FromArgb(55,59,65));using(var f=new Font("Segoe UI",14))using(var brush=new SolidBrush(Color.Silver))g.DrawString(label,f,brush,new RectangleF(0,45,160,40),new StringFormat{Alignment=StringAlignment.Center});}return b;}
     static Bitmap MakeThumbnail(string path){if(ModelFiles.Supported(path))return ModelFiles.Tile(path);if(MediaFiles.IsVideo(path))return MediaFiles.VideoTile(path);
-        using(var source=Album.Decode(path)){
+        string ext=Path.GetExtension(path).ToLowerInvariant();
+        using(var source=ExtendedDecoder.Extensions.Contains(ext)?ExtendedDecoder.Decode(path,320,240):Album.Decode(path)){
             var b=new Bitmap(160,120);using(var g=Graphics.FromImage(b)){
                 g.Clear(Color.FromArgb(50,54,60));double scale=Math.Min(152.0/source.Width,112.0/source.Height);
                 int w=Math.Max(1,(int)(source.Width*scale)),h=Math.Max(1,(int)(source.Height*scale));var rect=new Rectangle((160-w)/2,(120-h)/2,w,h);

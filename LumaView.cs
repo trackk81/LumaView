@@ -33,6 +33,18 @@ class NaturalSort : System.Collections.Generic.IComparer<string> {
 class Album : IDisposable {
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object> OpaqueImages =
         new System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object>();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object> OriginalSizes =
+        new System.Runtime.CompilerServices.ConditionalWeakTable<Bitmap,object>();
+    internal static void SetOriginalSize(Bitmap bitmap,Size size){
+        if(bitmap==null)return;
+        OriginalSizes.Remove(bitmap);
+        OriginalSizes.Add(bitmap,size);
+    }
+    internal static Size OriginalSize(Bitmap bitmap){
+        if(bitmap==null)return Size.Empty;
+        object value;
+        return OriginalSizes.TryGetValue(bitmap,out value)?(Size)value:bitmap.Size;
+    }
     public string[] Files = new string[0];
     public int Index = -1;
     public Bitmap Image;
@@ -43,15 +55,31 @@ class Album : IDisposable {
         if(ExtendedDecoder.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant())) return ExtendedDecoder.Decode(path);
         using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         using (var image = System.Drawing.Image.FromStream(stream, true, true)) {
-            if ((long)image.Width * image.Height > 100000000) throw new InvalidDataException("이미지가 너무 큽니다 (최대 1억 픽셀).");
-            var bitmap = new Bitmap(image);
+            int origW=image.Width,origH=image.Height;
+            var target=PsdDecoder.ComputeTargetSize(origW,origH,0,0);
+            Bitmap bitmap;
+            if(target.Width==origW&&target.Height==origH){
+                bitmap=new Bitmap(image);
+            }else{
+                bitmap=new Bitmap(target.Width,target.Height);
+                try{
+                    using(var g=Graphics.FromImage(bitmap)){
+                        g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(image,0,0,target.Width,target.Height);
+                    }
+                }catch{bitmap.Dispose();throw;}
+            }
             try {
                 if (image.PropertyIdList.Contains(0x112)) {
                     int orientation = BitConverter.ToUInt16(image.GetPropertyItem(0x112).Value, 0);
                     RotateFlipType[] transforms = {RotateFlipType.RotateNoneFlipNone,RotateFlipType.RotateNoneFlipNone,RotateFlipType.RotateNoneFlipX,RotateFlipType.Rotate180FlipNone,RotateFlipType.Rotate180FlipX,RotateFlipType.Rotate90FlipX,RotateFlipType.Rotate90FlipNone,RotateFlipType.Rotate270FlipX,RotateFlipType.Rotate270FlipNone};
-                    if (orientation >= 1 && orientation <= 8) bitmap.RotateFlip(transforms[orientation]);
+                    if (orientation >= 1 && orientation <= 8) {
+                        bitmap.RotateFlip(transforms[orientation]);
+                        if (orientation >= 5) { int t=origW; origW=origH; origH=t; }
+                    }
                 }
             } catch (ArgumentException) { }
+            if(origW!=bitmap.Width||origH!=bitmap.Height)SetOriginalSize(bitmap,new Size(origW,origH));
             if(image.RawFormat.Guid==ImageFormat.Jpeg.Guid||image.PixelFormat==PixelFormat.Format24bppRgb||
                 image.PixelFormat==PixelFormat.Format32bppRgb||image.PixelFormat==PixelFormat.Format48bppRgb)
                 OpaqueImages.Add(bitmap,new object());
@@ -299,11 +327,11 @@ partial class Viewer : Form {
     void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
-    void Rotate(bool clockwise){if(busy || album.Image==null)return;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);canvas.InvalidateGpuImage();canvas.Reset();}
+    void Rotate(bool clockwise){if(busy || album.Image==null)return;var orig=Album.OriginalSize(album.Image);bool scaled=orig.Width!=album.Image.Width||orig.Height!=album.Image.Height;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);if(scaled)Album.SetOriginalSize(album.Image,new Size(orig.Height,orig.Width));canvas.InvalidateGpuImage();canvas.Reset();}
     void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.InvalidateGpuImage();canvas.Invalidate();canvas.Focus();}
     void ToggleSlide(){if(!full){if(fileList.SelectedItems.Count>0){startSlideAfterLoad=true;OpenSelectedImage();}return;}if(slide.Enabled){StopSlide();return;}if(album.Files.Length==0){Choose();if(album.Files.Length==0)return;}slide.Start();play.Text=Ui.T("Ⅱ 일시정지");UpdateInfo();}
     void StopSlide(){slide.Stop();if(play!=null)play.Text=Ui.T("▶ 슬라이드쇼");UpdateInfo();}
-    void UpdateInfo(){RefreshDetails();if(!full){UpdateBrowserInfo();return;}info.Text=album.Image==null?Ui.T("준비  ·  원본 파일을 변경하지 않습니다"):String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,Path.GetFileName(album.Current),album.Image.Width,album.Image.Height,canvas.ViewScale*100,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}
+    void UpdateInfo(){RefreshDetails();if(!full){UpdateBrowserInfo();return;}if(album.Image==null){info.Text=Ui.T("준비  ·  원본 파일을 변경하지 않습니다");return;}var orig=Album.OriginalSize(album.Image);double zoom=canvas.ViewScale*album.Image.Width/Math.Max(1,orig.Width)*100;info.Text=String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,Path.GetFileName(album.Current),orig.Width,orig.Height,zoom,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
         if(!folderAddress.Focused){if(key==(Keys.Control|Keys.C)){CopyFile();return true;}if(key==(Keys.Control|Keys.V)){PasteFiles();return true;}if(key==Keys.F2){RenameFile();return true;}}
         if(key==Keys.Escape){enterAfterLoad=false;fullscreenAfterLoad=false;if(full)ExitImageView();StopSlide();return true;}
