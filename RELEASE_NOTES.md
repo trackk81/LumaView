@@ -1,5 +1,3 @@
-# DollView 0.2.19
+# DollView 0.2.20
 
-- 1억 픽셀을 초과하는 초대형 PSD/PSB 및 일반 이미지도 오류 없이 열 수 있도록 스트리밍 행 단위 디코딩과 자동 표시 해상도 스케일링을 적용했습니다.
-- 초대형 이미지를 표시용 버퍼 크기로 안전하게 축소해 렌더링하더라도 상세 정보와 상태 표시줄에는 파일의 **실제 원본 해상도**가 정확하게 표시됩니다.
-- 네이티브 PSD/PSB 디코더(다중 레이어 O(1) 건너뛰기, Raw/RLE/ZIP, 1/8/16/32비트, RGB/CMYK/Grayscale/Indexed/Bitmap/Duotone/Lab, Photoshop 동시 열기 지원) 및 호환성 최대화 미사용 PSD 폴백을 포함합니다.
+- 상세 정보(`Tab`)를 켰을 때 GDI+ 렌더링 경로에서 이미지 오른쪽·아래쪽 가장자리에 1픽셀 흰색/회색 선이 나타나던 현상을 수정했습니다(`PixelOffsetMode.HighQuality` 정렬 및 `WrapMode.TileFlipXY` 적용).

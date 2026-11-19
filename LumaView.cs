@@ -200,8 +200,12 @@ class Canvas : Control {
             int right=Math.Min(Image.Width,(int)Math.Ceiling((region.Right-bounds.Left)/scale)+margin);
             int bottom=Math.Min(Image.Height,(int)Math.Ceiling((region.Bottom-bounds.Top)/scale)+margin);
             if(right<=x||bottom<=y)return;
-            if(System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat) ||
-                (Image.PixelFormat&PixelFormat.Indexed)!=0){
+            graphics.PixelOffsetMode=PixelOffsetMode.HighQuality;
+            graphics.SetClip(visible);
+            object marker;
+            bool opaque=Album.OpaqueImages.TryGetValue(Image,out marker)||
+                (!System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat)&&(Image.PixelFormat&PixelFormat.Indexed)==0);
+            if(!opaque){
                 using(var tile=new Bitmap(CheckerSize*2,CheckerSize*2)){
                     using(var tileGraphics=Graphics.FromImage(tile)){
                         tileGraphics.Clear(BackgroundOne);
@@ -219,9 +223,12 @@ class Canvas : Control {
                 graphics.TranslateTransform(-bounds.X-bounds.Width/2,-bounds.Y-bounds.Height/2);
             }
             graphics.InterpolationMode=scale>=4?InterpolationMode.NearestNeighbor:InterpolationMode.HighQualityBicubic;
-            graphics.PixelOffsetMode=PixelOffsetMode.HighQuality;
-            var destination=new RectangleF(bounds.X+x*scale,bounds.Y+y*scale,(right-x)*scale,(bottom-y)*scale);
-            graphics.DrawImage(Image,destination,new RectangleF(x,y,right-x,bottom-y),GraphicsUnit.Pixel);
+            float dx=bounds.X+x*scale,dy=bounds.Y+y*scale,dw=(right-x)*scale,dh=(bottom-y)*scale;
+            var dest=new[]{new PointF(dx,dy),new PointF(dx+dw,dy),new PointF(dx,dy+dh)};
+            using(var attributes=new ImageAttributes()){
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                graphics.DrawImage(Image,dest,new RectangleF(x,y,right-x,bottom-y),GraphicsUnit.Pixel,attributes);
+            }
         }finally{graphics.Restore(state);}
     }
     protected override void OnPaint(PaintEventArgs e) {
