@@ -6,7 +6,7 @@ using System.Windows.Forms;
 namespace LumaView {
 partial class Viewer {
     void AddDetailsButton(){
-        var button=Add(Ui.T("상세 정보"),delegate{canvas.ShowDetails=!canvas.ShowDetails;RefreshDetails();canvas.Invalidate();},"I");
+        var button=AddShortcut(Ui.T("상세 정보"),delegate{canvas.ShowDetails=detailsButton.Checked;RefreshDetails();canvas.Invalidate();},"details");
         button.CheckOnClick=true;
         detailsButton=button;
     }

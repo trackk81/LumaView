@@ -247,21 +247,21 @@ partial class Viewer : Form {
         Text=AppUpdater.AppTitle; Size=new Size(1200,800); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
         Font=new Font("Segoe UI",10); BackColor=Ui.Background; KeyPreview=true; AllowDrop=true;
         toolbar.GripStyle=ToolStripGripStyle.Hidden; toolbar.Padding=new Padding(10,8,10,8); toolbar.BackColor=Color.FromArgb(38,42,48); toolbar.ForeColor=Color.White; toolbar.RenderMode=ToolStripRenderMode.System;
-        Add(Ui.T("탐색기"),ToggleExplorer,"Ctrl+B"); Add(Ui.T("목록"),ShowPicker,"Enter"); Add(Ui.T("열기"),Choose,"Ctrl+O"); Add(Ui.T("폴더"),Folder,"Ctrl+Shift+O"); Sep();
-        Add(Ui.T("◀ 이전"),delegate{Navigate(-1);},"Left"); Add(Ui.T("다음 ▶"),delegate{Navigate(1);},"Right / Space"); Sep();
-        Add("−",delegate{Zoom(1/1.2);},"-"); Add("+",delegate{Zoom(1.2);},"+");
-        Add(Ui.T("화면 맞춤"),delegate{canvas.Fit=true;canvas.Reset();},"F"); Add("100%",delegate{canvas.Fit=false;canvas.Zoom=1;canvas.Reset();},"1"); Sep();
-        Add("↶",delegate{Rotate(false);},"Shift+R"); Add(Ui.T("↷ 회전"),delegate{Rotate(true);},"R"); Sep();
+        AddShortcut(Ui.T("탐색기"),ToggleExplorer,"explorer"); Add(Ui.T("목록"),ShowPicker,"Enter"); AddShortcut(Ui.T("열기"),Choose,"open"); AddShortcut(Ui.T("폴더"),Folder,"folder"); Sep();
+        AddShortcut(Ui.T("◀ 이전"),delegate{Navigate(-1);},"prev"); AddShortcut(Ui.T("다음 ▶"),delegate{Navigate(1);},"next"); Sep();
+        AddShortcut("−",delegate{Zoom(1/1.2);},"zoomOut"); AddShortcut("+",delegate{Zoom(1.2);},"zoomIn");
+        AddShortcut(Ui.T("화면 맞춤"),delegate{canvas.Fit=true;canvas.Reset();},"fit"); AddShortcut("100%",delegate{canvas.Fit=false;canvas.Zoom=1;canvas.Reset();},"actualSize"); Sep();
+        AddShortcut("↶",delegate{Rotate(false);},"rotateLeft"); AddShortcut(Ui.T("↷ 회전"),delegate{Rotate(true);},"rotateRight"); Sep();
         var flipMenu=new ToolStripDropDownButton(Ui.T("반전")){ToolTipText=Ui.T("화면에서만 반전합니다. 원본은 변경하지 않습니다.")};
         flipMenu.DropDownItems.Add(Ui.T("좌우 반전"),null,delegate{FlipImage(true);});
         flipMenu.DropDownItems.Add(Ui.T("상하 반전"),null,delegate{FlipImage(false);});
         toolbar.Items.Add(flipMenu);Sep();
-        play=Add(Ui.T("▶ 슬라이드쇼"),ToggleSlide,"F5");
+        play=AddShortcut(Ui.T("▶ 슬라이드쇼"),ToggleSlide,"slideshow");
         var interval=new ToolStripComboBox { DropDownStyle=ComboBoxStyle.DropDownList,AutoSize=false,Width=65 };
         interval.Items.AddRange(new object[]{Ui.T("1초"),Ui.T("3초"),Ui.T("5초"),Ui.T("10초")}); interval.SelectedIndex=1;
         interval.SelectedIndexChanged+=delegate{slide.Interval=new[]{1000,3000,5000,10000}[interval.SelectedIndex];}; toolbar.Items.Add(interval);
         AddDetailsButton();
-        imageModeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),Fullscreen,"Alt+Enter");
+        imageModeButton=AddShortcut(ComponentSetup.Say("전체화면","Fullscreen"),Fullscreen,"fullscreen");
         Add(Ui.T("목록으로"),ExitImageView,"Esc");
         status.Padding=new Padding(14,6,14,6);info.AutoToolTip=true;
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
@@ -276,17 +276,8 @@ partial class Viewer : Form {
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
         FormClosed+=delegate{if(chrome!=null)chrome.Dispose();slide.Dispose();album.Dispose();};
-        Ui.Apply(this);Ui.Apply(toolbar);
-        UpdateInfo(); if(path!=null) Shown+=async delegate{
-            if(startupOpening&&groupSequences&&Album.Supported(path)&&
-                System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(path),@"\d{3,}$")){
-                try{
-                    var groups=await System.Threading.Tasks.Task.Run(()=>Sequences.Group(Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path)))));
-                    if(IsDisposed||!full)return;
-                    sequenceGroups=groups;
-                }catch(IOException){}catch(UnauthorizedAccessException){}
-                if(IsDisposed||!full)return;
-            }
+        Ui.Apply(this);Ui.Apply(toolbar);RefreshShortcutTooltips();
+        UpdateInfo(); if(path!=null) Shown+=delegate{
             enterAfterLoad=startupOpening;
             Open(path);
         };
@@ -295,12 +286,15 @@ partial class Viewer : Form {
             if(Album.Supported(path))EnterImageView(true);
         }
     }
+    readonly System.Collections.Generic.Dictionary<ToolStripButton,string> shortcutButtons=new System.Collections.Generic.Dictionary<ToolStripButton,string>();
     ToolStripButton Add(string text,Action action,string shortcut) { var b=new ToolStripButton(text){DisplayStyle=ToolStripItemDisplayStyle.Text,ToolTipText=text+" ("+shortcut+")",Padding=new Padding(4,3,4,3)};b.Click+=delegate{action();if(full)canvas.Focus();else fileList.Focus();};toolbar.Items.Add(b);return b; }
+    ToolStripButton AddShortcut(string text,Action action,string actionId) { var b=Add(text,action,Shortcuts.Format(actionId));shortcutButtons[b]=actionId;return b; }
+    void RefreshShortcutTooltips() { foreach(var pair in shortcutButtons)pair.Key.ToolTipText=pair.Key.Text+" ("+Shortcuts.Format(pair.Value)+")"; }
     void Sep(){toolbar.Items.Add(new ToolStripSeparator());}
     void Choose(){using(var d=new OpenFileDialog{Filter="이미지, 영상 및 3D 모델|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff;*.ico;*.exr;*.psd;*.psb;*.webp;*.tga;*.hdr;*.dpx;*.dds;*.mp4;*.m4v;*.mov;*.wmv;*.avi;*.mpg;*.mpeg;*.mkv;*.webm;*.obj;*.glb;*.gltf;*.stl;*.fbx|모든 파일|*.*"})if(d.ShowDialog(this)==DialogResult.OK)Open(d.FileName);}
     void Folder(){using(var d=new FolderBrowserDialog{Description=Ui.T("이미지가 있는 폴더 선택")})if(d.ShowDialog(this)==DialogResult.OK)Open(d.SelectedPath);}
     void Guard(Action action){try{action();}catch(Exception ex){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
-    void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitImageView();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(OpenSequence(path))return;if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}if(!full)enterAfterLoad=true;LoadAsync(path,-1);}
+    void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitImageView();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}if(!full)enterAfterLoad=true;LoadAsync(path,-1);}
     void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
     void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
@@ -313,28 +307,40 @@ partial class Viewer : Form {
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
         if(!folderAddress.Focused){if(key==(Keys.Control|Keys.C)){CopyFile();return true;}if(key==(Keys.Control|Keys.V)){PasteFiles();return true;}if(key==Keys.F2){RenameFile();return true;}}
         if(key==Keys.Escape){enterAfterLoad=false;fullscreenAfterLoad=false;if(full)ExitImageView();StopSlide();return true;}
-        if(key==(Keys.Alt|Keys.Enter)){Fullscreen();return true;}
-        if(key==(Keys.Control|Keys.B)){ToggleExplorer();return true;}
-        if(key==Keys.Enter && !folderAddress.Focused){ShowPicker();return true;}
+        if(Shortcuts.Matches("fullscreen",key)){Fullscreen();return true;}
         if(!full && folderAddress.Focused) return base.ProcessCmdKey(ref msg,key);
-        if(!full && (fileList.Focused || folders.Focused) && (key==Keys.Left || key==Keys.Right || key==Keys.Up || key==Keys.Down || key==Keys.Home || key==Keys.End || key==Keys.PageUp || key==Keys.PageDown || key==Keys.Space)) return base.ProcessCmdKey(ref msg,key);
-        if(key==Keys.Enter){ShowPicker();return true;}
-        switch(key){
-            case Keys.Control|Keys.O:Choose();return true;
-            case Keys.Control|Keys.Shift|Keys.O:Folder();return true;
-            case Keys.Right:case Keys.Space:case Keys.PageDown:Navigate(1);return true;
-            case Keys.Left:case Keys.Back:case Keys.PageUp:Navigate(-1);return true;
-            case Keys.Home:Select(0);return true;
-            case Keys.End:Select(album.Files.Length-1);return true;
-            case Keys.Add:case Keys.Oemplus:case Keys.Shift|Keys.Oemplus:Zoom(1.2);return true;
-            case Keys.Subtract:case Keys.OemMinus:Zoom(1/1.2);return true;
-            case Keys.F:canvas.Fit=true;canvas.Reset();return true;
-            case Keys.D1:canvas.Fit=false;canvas.Zoom=1;canvas.Reset();return true;
-            case Keys.I:ToggleDetails();return true;
-            case Keys.R:Rotate(true);return true;
-            case Keys.Shift|Keys.R:Rotate(false);return true;
-            case Keys.F5:ToggleSlide();return true;
-        }return base.ProcessCmdKey(ref msg,key);
+        if(Shortcuts.Matches("explorer",key)){ToggleExplorer();return true;}
+        if(Shortcuts.Matches("open",key)){Choose();return true;}
+        if(Shortcuts.Matches("folder",key)){Folder();return true;}
+        if(Shortcuts.Matches("slideshow",key)){ToggleSlide();return true;}
+        if(full){
+            if(Shortcuts.Matches("details",key)){ToggleDetails();return true;}
+            if(Shortcuts.Matches("next",key)){Navigate(1);return true;}
+            if(Shortcuts.Matches("prev",key)){Navigate(-1);return true;}
+            if(Shortcuts.Matches("zoomIn",key)){Zoom(1.2);return true;}
+            if(Shortcuts.Matches("zoomOut",key)){Zoom(1/1.2);return true;}
+            if(Shortcuts.Matches("fit",key)){canvas.Fit=true;canvas.Reset();return true;}
+            if(Shortcuts.Matches("actualSize",key)){canvas.Fit=false;canvas.Zoom=1;canvas.Reset();return true;}
+            if(Shortcuts.Matches("rotateRight",key)){Rotate(true);return true;}
+            if(Shortcuts.Matches("rotateLeft",key)){Rotate(false);return true;}
+            if(key==Keys.Enter){ShowPicker();return true;}
+            if(!Shortcuts.IsBound(key)){
+                switch(key){
+                    case Keys.Space:case Keys.PageDown:Navigate(1);return true;
+                    case Keys.Back:case Keys.PageUp:Navigate(-1);return true;
+                    case Keys.Home:Select(0);return true;
+                    case Keys.End:Select(album.Files.Length-1);return true;
+                    case Keys.Add:case Keys.Shift|Keys.Oemplus:Zoom(1.2);return true;
+                    case Keys.Subtract:Zoom(1/1.2);return true;
+                }
+            }
+            return base.ProcessCmdKey(ref msg,key);
+        }
+        if(key==Keys.Enter && !folderAddress.Focused){ShowPicker();return true;}
+        if((fileList.Focused || folders.Focused) && (key==Keys.Left || key==Keys.Right || key==Keys.Up || key==Keys.Down || key==Keys.Home || key==Keys.End || key==Keys.PageUp || key==Keys.PageDown || key==Keys.Space)) return base.ProcessCmdKey(ref msg,key);
+        if(Shortcuts.Matches("next",key)){Navigate(1);return true;}
+        if(Shortcuts.Matches("prev",key)){Navigate(-1);return true;}
+        return base.ProcessCmdKey(ref msg,key);
     }
 }
 static class Tests {

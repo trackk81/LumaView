@@ -78,12 +78,12 @@ sealed class ModelViewer:MediaViewerForm {
         path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),delegate{Close();});Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
         modeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
-        modeButton.ToolTipText="Alt+Enter";
+        modeButton.ToolTipText=Shortcuts.Format("fullscreen");
         var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
         Toggle(Ui.T("와이어프레임"),"wire",false);Toggle(Ui.T("텍스처"),"textures",true);Toggle(Ui.T("그리드"),"grid",true);Toggle(Ui.T("플랫 컬러"),"flat",false);Toggle("SSAO","ssao",false);
         lightButton=Add(Ui.T("라이트 추가 (L)"),delegate{Command("light");});lightButton.Enabled=false;lightButton.Tag="model";
         lightSettingsButton=Add(Ui.T("라이트 설정"),delegate{Command("editLight");});lightSettingsButton.Enabled=false;
-        detailsButton=Add(Ui.T("상세 정보"),delegate{});detailsButton.CheckOnClick=true;detailsButton.Enabled=false;detailsButton.Tag="model";detailsButton.CheckedChanged+=delegate{UpdateDetailsOverlay();};
+        detailsButton=Add(Ui.T("상세 정보"),delegate{});detailsButton.CheckOnClick=true;detailsButton.Enabled=false;detailsButton.Tag="model";detailsButton.ToolTipText=Ui.T("상세 정보")+" ("+Shortcuts.Format("details")+")";detailsButton.CheckedChanged+=delegate{UpdateDetailsOverlay();};
         status.Text=Ui.T("3D 모델을 읽는 중…");title.Text=Path.GetFileName(path);
         var bottom=new Panel{Height=42,BackColor=BackColor};bottom.Controls.Add(status);Controls.Add(web);
         chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var msg=new Message();return ProcessCmdKey(ref msg,key);});chrome.AddTop(title);tools.SizeChanged+=delegate{UpdateDetailsOverlay();};web.SizeChanged+=delegate{UpdateDetailsOverlay();};
@@ -173,6 +173,12 @@ sealed class ModelViewer:MediaViewerForm {
         try{
             string message=e.TryGetWebMessageAsString();
             if(message=="ready"){
+                var map=new System.Collections.Generic.Dictionary<string,object>{
+                    {"details",Shortcuts.ToJsDescriptor("details")},
+                    {"fit",Shortcuts.ToJsDescriptor("fit")},
+                    {"fullscreen",Shortcuts.ToJsDescriptor("fullscreen")}
+                };
+                await web.CoreWebView2.ExecuteScriptAsync("window.setShortcuts&&window.setShortcuts("+json.Serialize(map)+")");
                 string url="https://model.lumaview.invalid/"+Uri.EscapeDataString(Path.GetFileName(path));
                 await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+")");
             }else if(message=="exit"){EscapeView();}
@@ -197,7 +203,7 @@ sealed class ModelViewer:MediaViewerForm {
         }catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
-        if(key==(Keys.Alt|Keys.Enter)){ToggleFullscreen();return true;}
+        if(Shortcuts.Matches("fullscreen",key)){ToggleFullscreen();return true;}
         if(effectsPanelOpen&&web.ContainsFocus){
             if(key==Keys.Escape){ToggleRenderEffects();return true;}
             return base.ProcessCmdKey(ref msg,key);
@@ -206,9 +212,9 @@ sealed class ModelViewer:MediaViewerForm {
             if(lightMode)Command("cancelLight");else if(lightSelected)Command("clearSelection");else EscapeView();
             return true;
         }
+        if(Shortcuts.Matches("details",key)){if(detailsButton.Enabled)detailsButton.PerformClick();return true;}
+        if(Shortcuts.Matches("fit",key)){Command("iso");return true;}
         if(key==Keys.L){Command("light");return true;}
-        if(key==Keys.I){detailsButton.PerformClick();return true;}
-        if(key==Keys.F){Command("iso");return true;}
         return base.ProcessCmdKey(ref msg,key);
     }
 }

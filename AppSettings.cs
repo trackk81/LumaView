@@ -15,7 +15,7 @@ static class Ui {
     public static Color[] CustomColors=DefaultColors();
     public static Color[] DefaultColors(){return new[]{Color.FromArgb(68,68,68),Color.FromArgb(68,68,68),Color.FromArgb(235,235,235),Color.FromArgb(90,90,90),Color.FromArgb(97,97,97)};}
     static readonly string[] ColorKeys={"background","surface","text","highlight","border"};
-    public static void Load(){Language="ko";Theme="dark";CustomColors=DefaultColors();try{
+    public static void Load(){Language="ko";Theme="dark";CustomColors=DefaultColors();Shortcuts.ResetDefaults();try{
         if(!File.Exists(SettingsPath))return;
         foreach(string line in File.ReadAllLines(SettingsPath)){
             if(line=="language=en")Language="en";
@@ -27,18 +27,33 @@ static class Ui {
                 string hex=line.Substring(prefix.Length).TrimStart('#');int rgb;
                 if(hex.Length==6&&Int32.TryParse(hex,System.Globalization.NumberStyles.HexNumber,System.Globalization.CultureInfo.InvariantCulture,out rgb))CustomColors[i]=Color.FromArgb(255,(rgb>>16)&255,(rgb>>8)&255,rgb&255);
             }
+            if(line.StartsWith("shortcut.",StringComparison.Ordinal)){
+                int eq=line.IndexOf('=');
+                if(eq>9){
+                    string id=line.Substring(9,eq-9);
+                    Keys parsed;
+                    if(Shortcuts.TryParse(line.Substring(eq+1),out parsed))Shortcuts.Set(id,parsed);
+                }
+            }
         }
     }catch(IOException){}catch(UnauthorizedAccessException){}}
-    public static void Save(string language,string theme){SavePalette(language,theme,CustomColors);}
-    public static void SavePalette(string language,string theme,Color[] colors){
+    public static void Save(string language,string theme){SaveAll(language,theme,CustomColors,Shortcuts.Snapshot());}
+    public static void SavePalette(string language,string theme,Color[] colors){SaveAll(language,theme,colors,Shortcuts.Snapshot());}
+    public static void SaveAll(string language,string theme,Color[] colors,Dictionary<string,Keys> shortcuts){
         if(language!="ko"&&language!="en")throw new ArgumentException("language");if(theme!="dark"&&theme!="light"&&theme!="custom")throw new ArgumentException("theme");
         if(colors==null||colors.Length!=5)throw new ArgumentException("colors");
         var snapshot=(Color[])colors.Clone();
+        var keySnapshot=shortcuts==null?Shortcuts.Snapshot():new Dictionary<string,Keys>(shortcuts,StringComparer.Ordinal);
         string data="language="+language+"\r\ntheme="+theme+"\r\n";
         for(int i=0;i<ColorKeys.Length;i++)data+="color."+ColorKeys[i]+"="+Hex(snapshot[i])+"\r\n";
+        foreach(var action in Shortcuts.Actions){
+            Keys value;
+            if(!keySnapshot.TryGetValue(action.Id,out value))value=action.DefaultKey;
+            data+="shortcut."+action.Id+"="+Shortcuts.Serialize(value)+"\r\n";
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath));string temp=SettingsPath+"."+Guid.NewGuid().ToString("N")+".tmp";
         try{File.WriteAllText(temp,data);if(File.Exists(SettingsPath))File.Replace(temp,SettingsPath,null);else File.Move(temp,SettingsPath);}finally{if(File.Exists(temp))File.Delete(temp);}
-        Language=language;Theme=theme;CustomColors=snapshot;
+        Language=language;Theme=theme;CustomColors=snapshot;Shortcuts.Apply(keySnapshot);
     }
     public static string Hex(Color color){return "#"+color.R.ToString("X2")+color.G.ToString("X2")+color.B.ToString("X2");}
     public static Color Background{get{return Theme=="light"?Color.FromArgb(244,246,250):Theme=="custom"?CustomColors[0]:Color.FromArgb(18,21,27);}}
@@ -76,7 +91,7 @@ static class Ui {
         SelectionColors(control);
         bool image=control is Canvas||control is Filmstrip;
         if(!image){
-            bool inherit=control is Label||control is CheckBox||control is TableLayoutPanel||control is FlowLayoutPanel||control is SettingsStack;
+            bool inherit=control is Label||control is CheckBox||control is TableLayoutPanel||control is FlowLayoutPanel||control is SettingsStack||control is SettingsRow;
             control.BackColor=control is ModernCard?Surface:inherit&&control.Parent!=null?control.Parent.BackColor:control is Panel||control is Form||control is UserControl||control is TextBoxBase||control is ListView||control is TreeView?Background:Surface;
             control.ForeColor=Foreground;
         }
@@ -267,7 +282,23 @@ LumaView 시퀀스	LumaView Sequence
 설정을 저장하지 못했습니다	Could not save settings
 선택한 설정은 바로 적용되며 다음 실행에도 유지됩니다.	Settings apply immediately and are kept for the next launch.
 파일 이름: {0}  [{1}/{2}]\n파일 크기: {3}\n수정 날짜: {4}\n이미지 정보: {5} × {6} px  ({7})\n화면 배율: {8:0}%	File: {0}  [{1}/{2}]\nSize: {3}\nModified: {4}\nImage: {5} × {6} px  ({7})\nZoom: {8:0}%
-파일: {0}  [{1}/{2}]\n크기: {3:N2} MB  ·  수정: {4:yyyy-MM-dd HH:mm:ss}  ·  영상: {5} × {6}  ·  길이: {7}	File: {0}  [{1}/{2}]\nSize: {3:N2} MB  ·  Modified: {4:yyyy-MM-dd HH:mm:ss}  ·  Video: {5} × {6}  ·  Duration: {7}";
+파일: {0}  [{1}/{2}]\n크기: {3:N2} MB  ·  수정: {4:yyyy-MM-dd HH:mm:ss}  ·  영상: {5} × {6}  ·  길이: {7}	File: {0}  [{1}/{2}]\nSize: {3:N2} MB  ·  Modified: {4:yyyy-MM-dd HH:mm:ss}  ·  Video: {5} × {6}  ·  Duration: {7}
+단축키	Shortcuts
+키 입력 대기 중…	Press a key…
+지정 안 됨	Unassigned
+기본값으로 복원	Reset to defaults
+전체화면 전환	Toggle fullscreen
+탐색기 토글	Toggle explorer
+파일 열기	Open file
+폴더 열기	Open folder
+이전 이미지	Previous image
+다음 이미지	Next image
+확대	Zoom in
+축소	Zoom out
+100% 원본 크기	Actual size (100%)
+시계 방향 회전	Rotate clockwise
+반시계 방향 회전	Rotate counter-clockwise
+슬라이드쇼	Slideshow";
 }
 sealed class CustomColorEditor:SettingsStack {
     public Color[] Colors=(Color[])Ui.CustomColors.Clone();
@@ -277,12 +308,10 @@ sealed class CustomColorEditor:SettingsStack {
         string[] names={"UI 배경","메뉴 / 버튼","글자","선택 강조","테두리"};
         for(int i=0;i<5;i++){
             int index=i;
-            var row=new TableLayoutPanel{ColumnCount=2,RowCount=1,AutoSize=true,Margin=new Padding(0,0,0,8)};
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            var label=ModernUi.Text(Ui.T(names[i]));label.Dock=DockStyle.Fill;label.AutoSize=true;row.Controls.Add(label,0,0);
+            var label=ModernUi.Text(Ui.T(names[i]));
             var button=new ModernButton{MinimumSize=new Size(128,38),AccessibleName=Ui.T(names[i])+" — "+Ui.T("색상 선택")};
             button.Click+=delegate{using(var dialog=new ColorDialog{Color=Colors[index],FullOpen=true,AnyColor=true})if(dialog.ShowDialog(this)==DialogResult.OK){Colors[index]=dialog.Color;RefreshSwatches();}};
-            swatches[i]=button;row.Controls.Add(button,1,0);Controls.Add(row);
+            swatches[i]=button;Controls.Add(new SettingsRow(label,button));
         }
         var reset=new ModernButton{Text=Ui.T("기본 색으로")};reset.Click+=delegate{Colors=Ui.DefaultColors();RefreshSwatches();};Controls.Add(ModernUi.Actions(reset));
         preview=new Preview(this){Height=210,MinimumSize=new Size(0,210),Margin=new Padding(0,16,0,0)};Controls.Add(preview);RefreshSwatches();
@@ -311,11 +340,17 @@ sealed class CustomColorEditor:SettingsStack {
 }
 sealed class SettingsDialog:Form {
     readonly Panel pageHost=new Panel{Dock=DockStyle.Fill};
-    readonly Control[] pages=new Control[3];
-    readonly ModernButton[] navigation=new ModernButton[3];
+    readonly Control[] pages=new Control[4];
+    readonly ModernButton[] navigation=new ModernButton[4];
+    readonly ShortcutSettings shortcutSettings=new ShortcutSettings();
     internal void SelectPage(int index){
+        shortcutSettings.CancelCapture();
         for(int i=0;i<pages.Length;i++){pages[i].Visible=i==index;navigation[i].Selected=i==index;navigation[i].Invalidate();}
         pages[index].BringToFront();pages[index].PerformLayout();
+    }
+    protected override bool ProcessCmdKey(ref Message msg,Keys key){
+        if(shortcutSettings.IsCapturing)return shortcutSettings.CaptureKey(key);
+        return base.ProcessCmdKey(ref msg,key);
     }
     public SettingsDialog(){
         AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
@@ -328,10 +363,10 @@ sealed class SettingsDialog:Form {
         theme.SelectedIndexChanged+=delegate{custom.Visible=theme.SelectedIndex==2;};
         var general=new SettingsStack();general.Controls.Add(ModernUi.Text(Ui.T("일반"),false,21,true));general.Controls.Add(ModernUi.Text(ComponentSetup.Say("편안한 작업 환경을 만들어 보세요.","Make your workspace feel right."),true));general.Controls.Add(appearance);general.Controls.Add(custom);
         var associationSettings=new AssociationSettings();
-        pages[0]=ModernUi.Scroll(general);pages[1]=new ComponentSettings(()=>associationSettings.SelectedExtensions);pages[2]=associationSettings;
+        pages[0]=ModernUi.Scroll(general);pages[1]=new ComponentSettings(()=>associationSettings.SelectedExtensions);pages[2]=associationSettings;pages[3]=shortcutSettings;
         foreach(var page in pages){page.Dock=DockStyle.Fill;pageHost.Controls.Add(page);}
         var rail=new SettingsStack{Dock=DockStyle.Top,Padding=new Padding(14,20,10,12)};
-        string[] names={Ui.T("일반"),ComponentSetup.Say("구성 요소","Components"),Ui.T("파일 연결")};
+        string[] names={Ui.T("일반"),ComponentSetup.Say("구성 요소","Components"),Ui.T("파일 연결"),Ui.T("단축키")};
         for(int i=0;i<names.Length;i++){int index=i;var button=new ModernButton{Font=Font,Text=names[i],Name="settingsPage"+i,Margin=new Padding(0,0,0,8),MinimumSize=new Size(130,44)};button.Click+=delegate{SelectPage(index);};navigation[i]=button;rail.Controls.Add(button);}
         int railWidth=166;foreach(var item in navigation)railWidth=Math.Max(railWidth,item.GetPreferredSize(Size.Empty).Width+rail.Padding.Horizontal);
         var sidebar=new Panel{Dock=DockStyle.Left,Width=railWidth};sidebar.Controls.Add(rail);
@@ -341,18 +376,19 @@ sealed class SettingsDialog:Form {
         var heading=ModernUi.Text("DollView  /  "+Ui.T("설정"),false,15,true);heading.Dock=DockStyle.Fill;heading.AutoSize=true;heading.MinimumSize=new Size(0,heading.Font.Height+6);header.Controls.Add(heading,0,0);
         header.Controls.Add(new Label{Text="v"+AppUpdater.CurrentVersion,AutoSize=true,Anchor=AnchorStyles.Right,ForeColor=ModernUi.Muted},1,0);
         var save=new ModernButton{Text=Ui.T("저장"),Primary=true,Name="settingsSave"};var cancel=new ModernButton{Text=ComponentSetup.Say("닫기","Close"),DialogResult=DialogResult.Cancel};AcceptButton=save;CancelButton=cancel;
-        save.Click+=delegate{try{Ui.SavePalette(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};
+        save.Click+=delegate{try{Ui.SaveAll(language.SelectedIndex==1?"en":"ko",new[]{"dark","light","custom"}[theme.SelectedIndex],colors.Colors,shortcutSettings.Draft);DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("설정을 저장하지 못했습니다"));}};
         var footer=new TableLayoutPanel{Dock=DockStyle.Bottom,AutoSize=true,ColumnCount=2,Padding=new Padding(24,14,16,14)};
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var saveNote=ModernUi.Text(ComponentSetup.Say("언어와 테마는 저장하면 적용됩니다.","Save to apply language and appearance."),true);saveNote.Dock=DockStyle.Fill;footer.Controls.Add(saveNote,0,0);
+        var saveNote=ModernUi.Text(ComponentSetup.Say("언어, 테마, 단축키는 저장하면 적용됩니다.","Save to apply language, appearance, and shortcuts."),true);saveNote.Dock=DockStyle.Fill;footer.Controls.Add(saveNote,0,0);
         var footerActions=ModernUi.Actions(cancel,save);footerActions.WrapContents=false;footer.Controls.Add(footerActions,1,0);
-        Controls.Add(body);Controls.Add(footer);Controls.Add(header);Ui.Apply(this);colors.RefreshSwatches();SelectPage(0);
+        Controls.Add(body);Controls.Add(footer);Controls.Add(header);Ui.Apply(this);colors.RefreshSwatches();shortcutSettings.RefreshButtons();SelectPage(0);
         Shown+=delegate{var area=Screen.FromControl(this).WorkingArea;if(Width>area.Width-24||Height>area.Height-24){MinimumSize=new Size(Math.Min(MinimumSize.Width,area.Width-24),Math.Min(MinimumSize.Height,area.Height-24));Size=new Size(Math.Min(Width,area.Width-24),Math.Min(Height,area.Height-24));CenterToParent();}ModernUi.TitleBar(this);};
     }
 }
 partial class Viewer {
     void ShowSettings(){using(var dialog=new SettingsDialog())if(dialog.ShowDialog(this)==DialogResult.OK){
         foreach(Form form in Application.OpenForms)Ui.Apply(form);Ui.Apply(toolbar);Ui.Apply(canvas.ContextMenuStrip);
+        RefreshShortcutTooltips();
         foreach(TreeNode node in folders.Nodes)node.Text=Ui.T(node.Text);
         foreach(ListViewItem item in fileList.Items)ApplyGalleryItemText(item);
         UpdateInfo();

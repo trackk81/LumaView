@@ -264,27 +264,6 @@ partial class Viewer {
         Invalidate(true);
         Update();
     }
-    bool OpenSequence(string path){
-        string[] sequence;if(!sequenceGroups.TryGetValue(path,out sequence)){
-            sequence=sequenceGroups.Values.FirstOrDefault(items=>items.Contains(path,StringComparer.OrdinalIgnoreCase));
-            if(sequence==null)return false;
-        }
-        StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;if(full&&!startupOpening)ExitImageView();playbackActive=true;
-        int start=Array.FindIndex(sequence,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
-        var area=Screen.FromControl(this).WorkingArea;
-        var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
-        var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
-        try{using(var player=new SequenceViewer(sequence,bounds,start))ShowMediaViewer(player);}
-        finally{
-            playbackActive=false;
-            if(!IsDisposed){
-                if(startupOpening){startupOpening=false;ExitImageView();}
-                ShowFileFolder(path);
-                fileList.Focus();
-            }
-        }
-        return true;
-    }
     async void LoadAsync(string path,int index){
         busy=true;UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
         var files=(string[])album.Files.Clone();
@@ -336,7 +315,7 @@ partial class Viewer {
             status.Visible=true;
         }
         imageModeButton.Text=enabled?ComponentSetup.Say("창 모드","Windowed mode"):ComponentSetup.Say("전체화면","Fullscreen");
-        imageModeButton.ToolTipText=imageModeButton.Text+" (Alt+Enter)";
+        imageModeButton.ToolTipText=imageModeButton.Text+" ("+Shortcuts.Format("fullscreen")+")";
         canvas.Focus();
     }
     void ExitImageView(){

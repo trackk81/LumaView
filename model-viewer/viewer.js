@@ -146,14 +146,27 @@ window.modelCommand=action=>{
  if(action==='grid'){grid.visible=!grid.visible;axes.visible=grid.visible;draw();}
 };
 window.modelState=()=>({environment:environment?.state(),effects:{...effects?.settings},ready,wire,textures,flat,ssao,ssaoActive:ssao&&!flat&&aoStrength>0,aoStrength,clipNear:camera?.near,clipFar:camera?.far,skyDome,skyStrength,studioDirectionalVisible:keyLight?.visible,selectedLight,gizmoVisible:!!transform?.object,gizmoAxis:transform?.axis,dragging:transform?.dragging,lightMode,detailsVisible,lights:userLights.filter(x=>x.active).map(x=>({id:x.id,color:"#"+x.light.color.getHexString(),strength:x.strength,position:x.light.position.toArray(),screen:x.handle.position.clone().project(camera).toArray()})),grid:grid?.visible,meshes:window.modelStats?.meshes,triangles:window.modelStats?.triangles,camera:camera?.position.toArray(),target:controls?.target.toArray()});
+let shortcuts={
+ details:{ctrl:false,alt:false,shift:false,key:'Tab',code:'Tab'},
+ fit:{ctrl:false,alt:false,shift:false,key:'f',code:'KeyF'},
+ fullscreen:{ctrl:false,alt:true,shift:false,key:'Enter',code:'Enter'}
+};
+window.setShortcuts=map=>{if(map&&typeof map==='object')shortcuts={...shortcuts,...map};};
+function matchShortcut(spec,e){
+ if(!spec)return false;
+ if(!!e.ctrlKey!==!!spec.ctrl||!!e.altKey!==!!spec.alt||!!e.shiftKey!==!!spec.shift)return false;
+ if(spec.code&&e.code===spec.code)return true;
+ if(spec.key&&e.key&&e.key.toLowerCase()===spec.key.toLowerCase())return true;
+ return false;
+}
 window.addEventListener('keydown',e=>{
- if(e.altKey&&e.key==='Enter'){
+ if(matchShortcut(shortcuts.fullscreen,e)){
   e.preventDefault();
   e.stopPropagation();
   if(!e.repeat)post('toggleFullscreen');
  }
 },true);
-window.addEventListener('keydown',e=>{if(e.target.closest?.('#effects'))return;if(e.key==='Escape'){e.preventDefault();if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(e.key.toLowerCase()==='f')fit();else if(e.key.toLowerCase()==='l'&&!e.repeat){e.preventDefault();setLightMode(!lightMode);}else if(e.key.toLowerCase()==='i'&&!e.repeat)post('toggleDetails');});
+window.addEventListener('keydown',e=>{if(e.target.closest?.('#effects'))return;if(e.key==='Escape'){e.preventDefault();if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(matchShortcut(shortcuts.details,e)){e.preventDefault();if(!e.repeat)post('toggleDetails');}else if(matchShortcut(shortcuts.fit,e)){e.preventDefault();fit();}else if(e.key.toLowerCase()==='l'&&!e.repeat&&!e.ctrlKey&&!e.altKey){e.preventDefault();setLightMode(!lightMode);}});
 window.addEventListener('resize',resize);
 function setLightMode(enabled){
  if(!ready)return;if(enabled)selectLight(-1);lightMode=enabled;renderer.domElement.style.cursor=enabled?'crosshair':'';post('lightMode:'+(enabled?'on':'off'));

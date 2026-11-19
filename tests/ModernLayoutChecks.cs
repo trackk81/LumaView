@@ -28,6 +28,9 @@ class ModernLayoutChecks {
                 var children=c.Controls.Cast<Control>().Where(x=>x.Visible).ToArray();
                 for(int i=1;i<children.Length;i++)Check(children[i].Top>=children[i-1].Bottom,scenario+" overlapping content: "+children[i].Text);
             }
+            if(c.GetType().Name=="SettingsRow"){
+                Check(c.Height<=110,scenario+" excessive SettingsRow height="+c.Height);
+            }
         }
         var save=Walk(form).FirstOrDefault(c=>c.Name=="settingsSave");
         if(save!=null){var rectangle=form.RectangleToClient(save.RectangleToScreen(save.ClientRectangle));Check(form.ClientRectangle.Contains(rectangle),scenario+" save button unreachable");}
@@ -44,7 +47,7 @@ class ModernLayoutChecks {
             ui.GetField("Language").SetValue(null,language);ui.GetField("Theme").SetValue(null,theme);
             using(var form=(Form)Activator.CreateInstance(app.GetType("LumaView.SettingsDialog"))){
                 form.Show();ScaleUi(form,scale);form.ClientSize=new Size((int)(700*scale),(int)(520*scale));
-                for(int page=0;page<3;page++){
+                for(int page=0;page<4;page++){
                     form.GetType().GetMethod("SelectPage",all).Invoke(form,new object[]{page});Pump();
                     if(page==1){var status=Walk(form).First(c=>c.Name=="componentStatus");status.Text=String.Join(" ",Enumerable.Repeat(language=="ko"?"연결에 실패했습니다. 인터넷 연결과 설치 정책을 확인하고 다시 시도하세요.":"The connection failed. Check your network and installation policy, then try again.",8));Pump();}
                     Audit(form,language+"/"+theme+"/"+scale+"/page"+page);

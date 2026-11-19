@@ -36,7 +36,11 @@ class WrapLabel:Label {
     public bool Muted;
     public WrapLabel(){AutoSize=false;UseMnemonic=false;AutoEllipsis=false;Margin=new Padding(0,0,0,8);}
     public override Size GetPreferredSize(Size proposed){
-        int width=Math.Max(20,proposed.Width>0?proposed.Width:Width);
+        int width=proposed.Width>1?proposed.Width:Width;
+        if(width<=20){
+            var single=TextRenderer.MeasureText(Text??"",Font,Size.Empty,TextFormatFlags.NoPrefix);
+            return new Size(Math.Max(20,single.Width+Padding.Horizontal),Math.Max(Font.Height,single.Height)+Padding.Vertical+2);
+        }
         var measured=TextRenderer.MeasureText(Text??"",Font,new Size(Math.Max(1,width-Padding.Horizontal),int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.TextBoxControl|TextFormatFlags.NoPrefix);
         return new Size(width,Math.Max(Font.Height,measured.Height)+Padding.Vertical+2);
     }
@@ -75,6 +79,40 @@ sealed class ModernCard:SettingsStack {
         e.Graphics.Clear(Parent==null?Ui.Background:Parent.BackColor);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
         using(var path=ModernUi.Rounded(new RectangleF(.5f,.5f,Math.Max(1,Width-1),Math.Max(1,Height-1)),10))
         using(var fill=new SolidBrush(Ui.Surface))using(var border=new Pen(Ui.Border)){e.Graphics.FillPath(fill,path);e.Graphics.DrawPath(border,path);}
+    }
+}
+sealed class SettingsRow:Panel {
+    readonly WrapLabel label;
+    readonly Control action;
+    public SettingsRow(WrapLabel label,Control action){
+        this.label=label;this.action=action;
+        DoubleBuffered=true;Margin=new Padding(0,0,0,8);
+        label.Margin=Padding.Empty;label.TextAlign=ContentAlignment.MiddleLeft;
+        action.Margin=Padding.Empty;
+        Controls.Add(label);Controls.Add(action);
+        action.TextChanged+=RefreshRow;label.TextChanged+=RefreshRow;
+        action.FontChanged+=RefreshRow;label.FontChanged+=RefreshRow;
+    }
+    void RefreshRow(object sender,EventArgs e){PerformLayout();if(Parent!=null)Parent.PerformLayout();}
+    void Compute(int width,out int labelW,out int labelH,out int actionW,out int actionH){
+        var actionSize=action.GetPreferredSize(Size.Empty);
+        actionW=Math.Max(action.MinimumSize.Width,actionSize.Width);
+        actionH=Math.Max(action.MinimumSize.Height,actionSize.Height);
+        labelW=Math.Max(40,width-actionW-16);
+        labelH=label.GetPreferredSize(new Size(labelW,0)).Height;
+    }
+    public override Size GetPreferredSize(Size proposed){
+        int width=proposed.Width>0?proposed.Width:Math.Max(100,Width);
+        int labelW,labelH,actionW,actionH;Compute(width,out labelW,out labelH,out actionW,out actionH);
+        return new Size(width,Math.Max(actionH,labelH));
+    }
+    protected override void OnLayout(LayoutEventArgs e){
+        base.OnLayout(e);
+        int width=Math.Max(1,ClientSize.Width);
+        int labelW,labelH,actionW,actionH;Compute(width,out labelW,out labelH,out actionW,out actionH);
+        int rowH=Math.Max(actionH,labelH);
+        label.SetBounds(0,(rowH-labelH)/2,labelW,labelH);
+        action.SetBounds(Math.Max(0,width-actionW),(rowH-actionH)/2,actionW,actionH);
     }
 }
 class ModernButton:Button {
