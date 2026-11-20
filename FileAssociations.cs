@@ -80,12 +80,16 @@ static class FileAssociations {
     public static bool HandleInstallerCommand(string[] args){
         if(args.Length==0||!new[]{"--register-associations","--unregister-associations","--prepare-default-associations","--open-selected-defaults"}.Contains(args[0]))return false;
         try{
-            if(args[0]=="--register-associations")Register(Extensions);
+            if(args[0]=="--register-associations"&&args.Length==1)Register(Extensions);
             else if(args[0]=="--unregister-associations")UnregisterOwned();
             else{
                 if(args.Length!=2)throw new ArgumentException("Expected a comma-separated extension list.");
                 var selected=args[1].Split(',').Select(e=>e.Trim().ToLowerInvariant()).Distinct().ToArray();
-                if(args[0]=="--prepare-default-associations")PrepareSelectedTypes(selected);
+                if(args[0]=="--register-associations"){
+                    Register(selected);
+                    PrepareSelectedTypes(selected);
+                }
+                else if(args[0]=="--prepare-default-associations")PrepareSelectedTypes(selected);
                 else OpenSelectedDefaults(selected);
             }
         }catch(Exception ex){Console.Error.WriteLine(ex.Message);Environment.ExitCode=1;}
@@ -126,7 +130,7 @@ sealed class AssociationSettings:UserControl {
     public AssociationSettings(){
         Dock=DockStyle.Fill;
         var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
-        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("더블클릭으로 열 형식을 선택하세요. Windows에서 DollView를 최종 선택하면 연결됩니다.","Choose the formats to open with a double-click, then confirm DollView in Windows Settings."),true));
+        content.Controls.Add(ModernUi.Text(ComponentSetup.Say("묶음을 고르거나 아래에서 확장자를 조정하세요. 연결을 누르면 Windows 기본 앱 설정이 열립니다.","Choose a group or adjust individual extensions below. Click Connect to open Windows default app settings."),true));
         list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
         rowHeight.ImageSize=new Size(1,32);list.SmallImageList=rowHeight;
         list.Resize+=delegate{int unit=Font.Height;list.Columns[0].Width=unit*5;list.Columns[1].Width=unit*7;list.Columns[2].Width=Math.Max(unit*8,list.ClientSize.Width-unit*12-SystemInformation.VerticalScrollBarWidth-4);};
@@ -144,6 +148,10 @@ sealed class AssociationSettings:UserControl {
             finally{connecting=false;register.Enabled=true;}
         };
         var refresh=new ModernButton{Text=Ui.T("새로고침")};refresh.Click+=delegate{RefreshRows();};
+        content.Controls.Add(ModernUi.Actions(
+            GroupButton(ComponentSetup.Say("이미지","Images"),Album.Supported),
+            GroupButton(ComponentSetup.Say("영상","Videos"),MediaFiles.IsVideo),
+            GroupButton(ComponentSetup.Say("3D 모델","3D models"),ModelFiles.Supported)));
         content.Controls.Add(ModernUi.Actions(all,clear,refresh));
         var listHost=new Panel{Height=330,MinimumSize=new Size(0,240),Margin=new Padding(0,16,0,16)};listHost.Controls.Add(list);content.Controls.Add(listHost);
         var defaults=new ModernButton{Text=ComponentSetup.Say("Windows 설정 열기","Windows settings")};defaults.Click+=delegate{try{FileAssociations.OpenDefaults();}catch(Exception ex){notice.Text=ex.Message;}};
@@ -151,6 +159,17 @@ sealed class AssociationSettings:UserControl {
         notice.Text=ComponentSetup.Say("등록 상태와 현재 기본 앱을 함께 확인할 수 있습니다.","Registration and the current default app are shown separately.");
         RefreshRows();Ui.Apply(this);
         Load+=delegate{settingsForm=FindForm();if(settingsForm!=null)settingsForm.Activated+=RefreshOnReturn;};
+    }
+    ModernButton GroupButton(string caption,Func<string,bool> accepts){
+        var button=new ModernButton{Text=caption};
+        button.Click+=delegate{
+            var group=list.Items.Cast<ListViewItem>().Where(item=>accepts("file"+(string)item.Tag)).ToArray();
+            bool select=group.Any(item=>!item.Checked);
+            list.BeginUpdate();
+            try{foreach(var item in group)item.Checked=select;}
+            finally{list.EndUpdate();}
+        };
+        return button;
     }
     void RefreshOnReturn(object sender,EventArgs e){if(!IsDisposed&&Visible&&!connecting)RefreshRows();}
     protected override void Dispose(bool disposing){if(disposing){if(settingsForm!=null){settingsForm.Activated-=RefreshOnReturn;settingsForm=null;}rowHeight.Dispose();}base.Dispose(disposing);}

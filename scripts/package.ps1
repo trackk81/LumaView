@@ -31,7 +31,7 @@ if ($IncludeInstaller) {
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
 }
 $releaseFiles = @($portable)
-if ($IncludeInstaller) { $releaseFiles += Join-Path $dist "LumaView-Setup-$version-x64.exe" }
+if ($IncludeInstaller) { $releaseFiles += Join-Path $dist "DollView-Setup-$version-x64.exe" }
 $checksumName=if($CleanPortable){'DollView-SHA256SUMS.txt'}else{'SHA256SUMS.txt'}
 $releaseFiles | ForEach-Object { $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256; $hash.Hash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_) } | Set-Content -LiteralPath (Join-Path $dist $checksumName) -Encoding ASCII
 $payload | Set-Content -LiteralPath (Join-Path $dist 'latest-payload.txt') -Encoding UTF8

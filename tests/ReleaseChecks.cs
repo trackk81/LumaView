@@ -14,8 +14,10 @@ static void Associations(){
   try{
    const string choice=@"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.jpg\UserChoice";
    using(var key=Registry.CurrentUser.CreateSubKey(choice))key.SetValue("ProgId","AnotherViewer.Jpeg");
-   Call("FileAssociations","Register",new object[]{new[]{".jpg",".png"}});
+   Call("FileAssociations","HandleInstallerCommand",new object[]{new[]{"--register-associations",".jpg,.png"}});
    Check((bool)Call("FileAssociations","Registered",".jpg"),"register selected file types in isolated registry");
+   Check(!(bool)Call("FileAssociations","Registered",".mp4"),"installer selection excludes other extensions");
+   using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().OrderBy(x=>x).SequenceEqual(new[]{".jpg",".png"}),"installer passes selected types to Windows settings");
    Call("FileAssociations","PrepareSelectedTypes",new object[]{new[]{".png"}});
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().SequenceEqual(new[]{".png"}),"Windows defaults page contains only chosen extensions");
    Call("FileAssociations","UnregisterOwned");
@@ -31,6 +33,13 @@ static void Associations(){
 }
 static string Release(string version,string repository="trackk81/LumaView",bool prerelease=false){string tag="v"+version,exe="LumaView-"+version+"-win-x64.zip";return new JavaScriptSerializer().Serialize(new {tag_name=tag,draft=false,prerelease=prerelease,assets=new[]{new{name=exe,browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/"+exe,size=12345},new{name="SHA256SUMS.txt",browser_download_url="https://github.com/"+repository+"/releases/download/"+tag+"/SHA256SUMS.txt",size=100}}});}
 static void Updater(){
+ string[] names={"DollView-Setup-0.2.21-x64.exe","DollView-0.2.21-win-x64.zip","DollView-SHA256SUMS.txt","LumaView-0.2.21-win-x64.zip","SHA256SUMS.txt"};
+ var release=new JavaScriptSerializer().Serialize(new{tag_name="v0.2.21",draft=false,prerelease=false,assets=names.Select(name=>new{name=name,size=100,browser_download_url="https://github.com/trackk81/LumaView/releases/download/v0.2.21/"+name}).ToArray()});
+ var update=Call("AppUpdater","ParseRelease",release);
+ var asset=update.GetType().GetField("Package").GetValue(update);
+ Check((string)asset.GetType().GetProperty("name").GetValue(asset,null)==names[1],"updater selects portable ZIP when setup and both ZIPs are available");
+ string zipHash=new string('a',64),setupHash=new string('b',64);
+ Check((string)Call("AppUpdater","ExpectedHash",setupHash+"  "+names[0]+"\n"+zipHash+"  "+names[1],names[1])==zipHash,"updater reads ZIP digest from shared installer/ZIP checksums");
  Check(Call("AppUpdater","ParseRelease",Release("0.2.0"))!=null,"parse valid GitHub ZIP release");
  Check(Call("AppUpdater","ParseRelease",Release("0.2.0","trackk81/LumaView",true))==null,"exclude prerelease updates");
  Reject(()=>Call("AppUpdater","ParseRelease",Release("0.2.0","other/OtherApp")),"reject ZIP URL from another repository");
@@ -96,6 +105,18 @@ static void Layout(){
    var status=Walk(settings).OfType<Label>().Single(x=>x.Name=="componentStatus");
    Check(button.Visible&&button.Enabled&&button.Parent.ClientRectangle.Contains(button.Bounds),"download/connect action visible and usable in "+language);
    Check(status.Bottom<=status.Parent.ClientSize.Height&&status.PointToScreen(System.Drawing.Point.Empty).Y>=button.PointToScreen(new System.Drawing.Point(0,button.Height)).Y,"component setup status fits below action in "+language);
+   settings.GetType().GetMethod("SelectPage",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(settings,new object[]{2});Application.DoEvents();
+   var controls=Walk(settings).Where(c=>c.Visible).ToArray();
+   var images=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"이미지":"Images"));
+   var videos=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"영상":"Videos"));
+   var models=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"3D 모델":"3D models"));
+   var list=controls.OfType<ListView>().Single();
+   images.PerformClick();
+   Check(list.CheckedItems.Count==16&&list.CheckedItems.Cast<ListViewItem>().All(i=>(bool)Call("Album","Supported","x"+i.Text)),"image group selects only supported images in "+language);
+   videos.PerformClick();models.PerformClick();
+   Check(list.CheckedItems.Count==list.Items.Count,"groups can be combined in "+language);
+   images.PerformClick();
+   Check(list.CheckedItems.Count==14,"clearing an image group preserves other groups in "+language);
    settings.Close();
   }
  }

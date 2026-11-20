@@ -16,3 +16,11 @@ $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Packaged updater test compilation failed' }
 & (Join-Path $checkRoot 'PackagedUpdateCheck.exe') $target (Join-Path $root "dist\LumaView-$version-win-x64.zip") (Join-Path $checkRoot 'work') $version
 if ($LASTEXITCODE -ne 0) { throw "Packaged application upgrade failed: $checkRoot" }
+
+$modern=Join-Path $checkRoot 'DollView-0.2.20-win-x64.zip'
+Invoke-WebRequest -Uri 'https://github.com/trackk81/LumaView/releases/download/v0.2.20/DollView-0.2.20-win-x64.zip' -OutFile $modern
+if ((Get-FileHash -LiteralPath $modern).Hash -ine '356f6e4f8f2d62e467e33c5da8b87b9b406bdad8c2f5fcd1c370f6c271553fec') { throw 'Previous DollView ZIP hash mismatch' }
+$modernTarget=Join-Path $checkRoot 'modern'
+Expand-Archive -LiteralPath $modern -DestinationPath $modernTarget
+& (Join-Path $checkRoot 'PackagedUpdateCheck.exe') $modernTarget (Join-Path $root "dist\DollView-$version-win-x64.zip") (Join-Path $checkRoot 'modern-work') $version
+if ($LASTEXITCODE -ne 0) { throw "DollView portable upgrade failed: $checkRoot" }

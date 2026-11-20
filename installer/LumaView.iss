@@ -11,7 +11,7 @@
   #define SetupAppId "LumaView.Desktop"
 #endif
 #ifndef InstallName
-  #define InstallName "LumaView"
+  #define InstallName "DollView"
 #endif
 
 [Setup]
@@ -34,7 +34,7 @@ DisableWelcomePage=no
 UninstallDisplayIcon={app}\DollView.exe
 SetupIconFile=..\assets\LumaView.ico
 OutputDir={#OutputPath}
-OutputBaseFilename=LumaView-Setup-{#AppVersion}-x64
+OutputBaseFilename=DollView-Setup-{#AppVersion}-x64
 VersionInfoVersion={#AppVersion}.0
 Compression=lzma2
 SolidCompression=yes
@@ -56,8 +56,22 @@ korean.OpenDefaults=선택한 확장자의 기본 앱 설정 열기
 english.OpenDefaults=Open default app settings for the selected extensions
 korean.Launch=지금 DollView 실행
 english.Launch=Launch DollView now
-korean.TasksInfo=지원 형식은 '연결 프로그램'에 자동 등록됩니다. 아래에서 선택한 형식은 설치 후 기본 앱 설정에서 바로 확인할 수 있습니다. Windows에서 DollView를 최종 선택해 주세요.
-english.TasksInfo=Supported formats are registered in Open with. Selected types are shown directly in default app settings after setup. Confirm DollView in Windows to finish.
+korean.TasksInfo=묶음을 선택하거나 확장자를 직접 체크하세요. 설치를 마치면 Windows 설정에서 기본 앱을 확인할 수 있습니다.
+english.TasksInfo=Choose a group or check individual extensions. After setup, confirm your default apps in Windows Settings.
+korean.GroupPrompt=형식 묶음 선택…
+english.GroupPrompt=Select a group of file types…
+korean.Images=이미지만
+english.Images=Images only
+korean.Videos=영상만
+english.Videos=Videos only
+korean.ImagesVideos=이미지와 영상
+english.ImagesVideos=Images and videos
+korean.Models=3D 모델만
+english.Models=3D models only
+korean.AllTypes=모든 형식
+english.AllTypes=All formats
+korean.NoTypes=모두 해제
+english.NoTypes=Clear all formats
 korean.NeedNet=Microsoft .NET Framework 4.8 이상이 필요합니다. Windows Update 또는 https://dotnet.microsoft.com/download/dotnet-framework/net48 에서 설치한 뒤 다시 실행해 주세요.
 english.NeedNet=Microsoft .NET Framework 4.8 or later is required. Install it via Windows Update or https://dotnet.microsoft.com/download/dotnet-framework/net48 and run setup again.
 korean.NeedWebView=3D 보기를 위한 Microsoft Edge WebView2 설치에 실패했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.
@@ -85,17 +99,20 @@ Filename: "{app}\DollView.exe"; Description: "{cm:Launch}"; Flags: postinstall n
 Filename: "{app}\DollView.exe"; Parameters: "--unregister-associations"; RunOnceId: "UnregisterLumaView"; Flags: runhidden waituntilterminated
 
 [Code]
-var Extensions: TArrayOfString;
+var
+  Groups: array[0..2] of TArrayOfString;
+  Preset: TNewComboBox;
 
 function SelectedExtensions: String;
-var I: Integer;
+var G, I: Integer;
 begin
   Result := '';
-  for I := 0 to GetArrayLength(Extensions)-1 do
-    if WizardIsTaskSelected('assoc_' + Extensions[I]) then begin
-      if Result <> '' then Result := Result + ',';
-      Result := Result + '.' + Extensions[I];
-    end;
+  for G := 0 to 2 do
+    for I := 0 to GetArrayLength(Groups[G])-1 do
+      if WizardIsTaskSelected('assoc_' + Groups[G][I]) then begin
+        if Result <> '' then Result := Result + ',';
+        Result := Result + '.' + Groups[G][I];
+      end;
 end;
 
 function HasSelectedTypes: Boolean;
@@ -116,10 +133,58 @@ begin
     Result := (RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', V) and (V <> '') and (V <> '0.0.0.0'));
 end;
 
+procedure ChoosePreset(Sender: TObject);
+var G, I, Choice: Integer; Tasks, Prefix: String; IncludeGroup: Boolean;
+begin
+  Choice := Preset.ItemIndex;
+  if Choice <= 0 then Exit;
+  Tasks := '';
+  for G := 0 to 2 do begin
+    IncludeGroup := (Choice = 5) or ((Choice = 1) and (G = 0)) or
+      ((Choice = 2) and (G = 1)) or ((Choice = 3) and (G < 2)) or
+      ((Choice = 4) and (G = 2));
+    if IncludeGroup then Prefix := 'assoc_' else Prefix := '!assoc_';
+    for I := 0 to GetArrayLength(Groups[G])-1 do begin
+      if Tasks <> '' then Tasks := Tasks + ',';
+      Tasks := Tasks + Prefix + Groups[G][I];
+    end;
+  end;
+  WizardSelectTasks(Tasks);
+  Preset.ItemIndex := 0;
+end;
+
 procedure InitializeWizard;
 begin
-  Extensions := ['jpg','jpeg','png','bmp','gif','tif','tiff','ico','webp','exr','psd','psb','tga','hdr','dpx','dds','mp4','m4v','mov','wmv','avi','mpg','mpeg','mkv','webm','obj','glb','gltf','stl','fbx'];
+  Groups[0] := ['jpg','jpeg','png','bmp','gif','tif','tiff','ico','webp','exr','psd','psb','tga','hdr','dpx','dds'];
+  Groups[1] := ['mp4','m4v','mov','wmv','avi','mpg','mpeg','mkv','webm'];
+  Groups[2] := ['obj','glb','gltf','stl','fbx'];
   WizardForm.SelectTasksLabel.Caption := CustomMessage('TasksInfo');
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+var Offset: Integer;
+begin
+  if (CurPageID <> wpSelectTasks) or Assigned(Preset) then Exit;
+  Preset := TNewComboBox.Create(WizardForm);
+  Preset.Parent := WizardForm.SelectTasksPage;
+  Preset.Style := csDropDownList;
+  Preset.Items.Add(CustomMessage('GroupPrompt'));
+  Preset.Items.Add(CustomMessage('Images'));
+  Preset.Items.Add(CustomMessage('Videos'));
+  Preset.Items.Add(CustomMessage('ImagesVideos'));
+  Preset.Items.Add(CustomMessage('Models'));
+  Preset.Items.Add(CustomMessage('AllTypes'));
+  Preset.Items.Add(CustomMessage('NoTypes'));
+  Preset.ItemIndex := 0;
+  Preset.OnChange := @ChoosePreset;
+  Preset.Left := WizardForm.TasksList.Left;
+  Preset.Top := WizardForm.TasksList.Top;
+  Preset.Width := WizardForm.TasksList.Width;
+  Preset.Anchors := [akLeft, akTop, akRight];
+  Preset.TabOrder := WizardForm.TasksList.TabOrder;
+  Offset := Preset.Height + ScaleY(6);
+  WizardForm.TasksList.Height := WizardForm.TasksList.Height - Offset;
+  WizardForm.TasksList.Top := WizardForm.TasksList.Top + Offset;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -142,11 +207,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var ExitCode: Integer; Selected: String;
 begin
   if CurStep = ssPostInstall then begin
-    if not Exec(ExpandConstant('{app}\DollView.exe'), '--register-associations', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
-      RaiseException(CustomMessage('RegisterError'));
     Selected := SelectedExtensions;
     if Selected <> '' then
-      if not Exec(ExpandConstant('{app}\DollView.exe'), '--prepare-default-associations "' + Selected + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+      if not Exec(ExpandConstant('{app}\DollView.exe'), '--register-associations "' + Selected + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
         RaiseException(CustomMessage('RegisterError'));
   end;
 end;
