@@ -60,6 +60,28 @@ static void Updater(){
  Reject(()=>Call("AppUpdater","ExpectedHash",hash+"  portable.zip\n"+hash+"  portable.zip","portable.zip"),"reject duplicate checksums");
  string temp=Path.GetTempFileName();try{File.WriteAllText(temp,"test");Check(!(bool)Call("AppUpdater","VerifyHash",temp,hash),"reject modified ZIP bytes");}finally{File.Delete(temp);}
 }
+static void FbxTextures(){
+ string package=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fbx-fixture-"+Guid.NewGuid().ToString("N"));
+ string source=Path.Combine(package,"source"),textures=Path.Combine(package,"textures"),sub=Path.Combine(source,"props");
+ Directory.CreateDirectory(sub);
+ try{
+  Directory.CreateDirectory(textures);
+  string atlas=Path.Combine(textures,"Atlas.jpg"),alpha=Path.Combine(textures,"props_alpha.png");
+  File.WriteAllText(atlas,"test");File.WriteAllText(alpha,"test");
+  Func<string,string> resolve=reference=>(string)Call("FbxTextureFiles","Resolve",Path.Combine(source,"Export.fbx"),reference);
+  Check(resolve(@"..\Atlas.psd")==atlas&&resolve(@"..\props\props_alpha.psd")==alpha,"find exported FBX textures in a sibling textures directory");
+  string exact=Path.Combine(sub,"props_alpha.png");File.WriteAllText(exact,"test");
+  Check(resolve(@"props\props_alpha.png")==exact,"prefer the original FBX subdirectory when names collide");
+  File.WriteAllText(Path.Combine(textures,"Atlas.png"),"test");
+  Check(resolve(@"..\Atlas.psd")==null,"skip ambiguous PSD replacements");
+  File.WriteAllText(Path.Combine(package,"private.png"),"test");
+  Check(resolve(@"..\private.png")==null&&resolve("LM_Final.tga")==null,"unavailable and unrelated images stay unresolved");
+ }finally{
+  try{Directory.Delete(package,true);}
+  catch(IOException){Console.WriteLine("Test fixture retained at "+package);}
+  catch(UnauthorizedAccessException){Console.WriteLine("Test fixture retained at "+package);}
+ }
+}
 static IEnumerable<Control> Walk(Control root){foreach(Control child in root.Controls){yield return child;foreach(var nested in Walk(child))yield return nested;}}
 static void Components(){
  string version="";int installs=0,connections=0;string[] registered=null;
@@ -121,6 +143,6 @@ static void Layout(){
   }
  }
 }
-[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
+[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();FbxTextures();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
 }
 

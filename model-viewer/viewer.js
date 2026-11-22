@@ -20,6 +20,21 @@ const post=text=>window.chrome.webview.postMessage(text);
 const message=document.getElementById('message');
 let renderer,scene,camera,controls,model,grid,axes,radius=1,wire=false,textures=true,originals=new Map(),plain=new Map(),ready=false,drawPending=false;
 const failed=new Set();
+const fbxTexturePrefix='dollview-fbx-texture:';
+let englishMessages=false;
+function showMissingFiles(){
+ if(!ready||!failed.size)return;
+ const names=[...failed].map(url=>{
+  let path=url;
+  try{
+   const parsed=new URL(url,location.href);
+   if(parsed.protocol==='data:'||parsed.protocol==='blob:')return englishMessages?'embedded image':'내장 이미지';
+   path=decodeURIComponent(parsed.hostname==='textures.lumaview.invalid'?parsed.search.slice(1):parsed.pathname);
+  }catch{}
+  return path.split(/[\\/]/).pop();
+ });
+ message.textContent=(englishMessages?'Missing material or texture files: ':'찾을 수 없는 재질·텍스처 파일: ')+[...new Set(names)].join(', ');
+}
 let flat=false,lightMode=false,detailsVisible=false;
 const flatMaps=new Map(),flatColors=new Map(),userLights=[];
 const raycaster=new THREE.Raycaster();
@@ -229,11 +244,12 @@ function setupLightPicking(){
  renderer.domElement.addEventListener('pointercancel',()=>{gesture=null;blank=null;if(transform.dragging)transform.pointerUp({button:0});controls.enabled=true;});
 }const manager=new THREE.LoadingManager();
 manager.setURLModifier(url=>{
+ if(url.startsWith(fbxTexturePrefix))return 'https://textures.lumaview.invalid/?'+encodeURIComponent(url.slice(fbxTexturePrefix.length));
  const resolved=new URL(url,location.href);
  if(!['https://model.lumaview.invalid','https://viewer.lumaview.invalid'].includes(resolved.origin)&&!['data:','blob:'].includes(resolved.protocol))throw new Error('Only local model resources are supported.');
  return url;
 });
-manager.onError=url=>failed.add(url);
+manager.onError=url=>{failed.add(url);showMissingFiles();};
 manager.onLoad=()=>{if(ready){draw();setTimeout(capture,100);}};
 try{
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x202328);renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.appendChild(renderer.domElement);
@@ -249,6 +265,7 @@ try{
  window.addEventListener('pagehide',()=>{playback?.dispose();effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
  window.loadModel=async(url,extension,english=false)=>{
   try{
+   englishMessages=english;
    if(model)throw new Error('Open a new viewer to load another model.');
    let clips=[];
    if(extension==='glb'||extension==='gltf'){
@@ -263,7 +280,7 @@ try{
     for(const ref of refs){try{const mtlUrl=new URL(ref.replace(/\\/g,'/'),url).href;const mtl=await new MTLLoader(manager).loadAsync(mtlUrl);mtl.preload();if(!creator)creator=mtl;else{Object.assign(creator.materialsInfo,mtl.materialsInfo);Object.assign(creator.materials,mtl.materials);}}catch(e){failed.add(ref);}}
     if(creator)obj.setMaterials(creator);model=obj.parse(text);
    }else if(extension==='fbx'){
-    model=await new FBXLoader(manager).loadAsync(url);
+    model=await new FBXLoader(manager).setResourcePath(fbxTexturePrefix).loadAsync(url);
     clips=model.animations;
    }else if(extension==='stl'){
     const geometry=await new STLLoader(manager).loadAsync(url);model=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,vertexColors:!!geometry.attributes.color}));
@@ -276,7 +293,7 @@ try{
    const wrapper=new THREE.Group();wrapper.add(model);wrapper.position.copy(center).negate();scene.add(wrapper);
    grid=new THREE.GridHelper(radius*3,20,0x697586,0x38414b);grid.position.y=-size.y/2-radius*.002;scene.add(grid);axes=new THREE.AxesHelper(radius*.6);axes.position.y=grid.position.y+.001*radius;scene.add(axes);
    scene.updateMatrixWorld(true);effects.attach(model,radius);
-   ready=true;window.modelStats={meshes,triangles,materials:mats.size,size:size.toArray()};applySky();fit();message.textContent=failed.size?'Some local material/texture files could not be loaded.':'';
+   ready=true;window.modelStats={meshes,triangles,materials:mats.size,size:size.toArray()};applySky();fit();message.textContent='';showMissingFiles();
    post('loaded:'+JSON.stringify(window.modelStats));setTimeout(capture,200);
   }catch(e){error(e);}
  };

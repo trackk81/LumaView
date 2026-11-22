@@ -297,7 +297,7 @@ class FBXTreeParser {
 			const filename = images[ id ];
 
 			if ( blobs[ filename ] !== undefined ) images[ id ] = blobs[ filename ];
-			else images[ id ] = images[ id ].split( '\\' ).pop();
+			else images[ id ] = filename.replace( /\\/g, '/' );
 
 		}
 

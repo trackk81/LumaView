@@ -10,6 +10,52 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace LumaView {
+static class FbxTextureFiles {
+    static readonly string[] imageExtensions={".png",".jpg",".jpeg",".jfif",".webp",".gif",".bmp",".avif",".svg",".ico",".tga",".tif",".tiff",".dds"};
+
+    // Never follow a path from the author's computer. Only serve image files in the model
+    // directory or the package's adjacent textures directory.
+    static bool Available(string file,string root){
+        if(root==null||!file.StartsWith(root.TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase)||!File.Exists(file))return false;
+        for(string item=file;item!=null;item=Path.GetDirectoryName(item)){
+            if((File.GetAttributes(item)&FileAttributes.ReparsePoint)!=0)return false;
+            if(String.Equals(item,root,StringComparison.OrdinalIgnoreCase))return true;
+        }
+        return false;
+    }
+
+    public static string Resolve(string model,string reference){
+        string root=Path.GetDirectoryName(Path.GetFullPath(model));
+        var parent=Directory.GetParent(root);
+        string sibling=parent==null?null:Path.Combine(parent.FullName,"textures");
+        string relative=reference.Replace('/','\\');
+        string name=Path.GetFileName(relative);
+        if(String.IsNullOrEmpty(name)||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0)return null;
+        string ext=Path.GetExtension(name).ToLowerInvariant();
+        bool sourceImage=ext==".psd"||ext==".psb";
+        if(!sourceImage&&!imageExtensions.Contains(ext))return null;
+
+        var candidates=new System.Collections.Generic.List<string>();
+        if(!Path.IsPathRooted(relative)&&relative.IndexOf(':')<0)candidates.Add(Path.GetFullPath(Path.Combine(root,relative)));
+        candidates.Add(Path.Combine(root,name));
+        candidates.Add(Path.Combine(root,"textures",name));
+        if(sibling!=null)candidates.Add(Path.Combine(sibling,name));
+        var paths=candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if(sourceImage){
+            foreach(string file in paths){
+                // A single exported image with the same stem can stand in for the PSD.
+                var matches=new[]{".png",".jpg",".jpeg",".webp"}.Select(e=>Path.ChangeExtension(file,e))
+                    .Where(p=>Available(p,root)||Available(p,sibling)).Take(2).ToArray();
+                if(matches.Length!=0)return matches.Length==1?matches[0]:null;
+            }
+        }
+        foreach(string file in paths){
+            if(Available(file,root)||Available(file,sibling))return file;
+        }
+        return null;
+    }
+}
+
 static class ModelFiles {
     public static bool Supported(string path){return ModelConversion.Formats.Contains(Path.GetExtension(path).TrimStart('.').ToLowerInvariant());}
     public static string PreviewPath(string path){
@@ -160,7 +206,12 @@ sealed partial class ModelViewer:MediaViewerForm {
             core.PermissionRequested+=delegate(object s,CoreWebView2PermissionRequestedEventArgs e){e.State=CoreWebView2PermissionState.Deny;};
             core.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
             core.WebResourceRequested+=delegate(object s,CoreWebView2WebResourceRequestedEventArgs e){
-                Uri uri;if(Uri.TryCreate(e.Request.Uri,UriKind.Absolute,out uri)&&uri.Scheme=="https"&&(uri.Host=="viewer.lumaview.invalid"||uri.Host=="model.lumaview.invalid"))return;
+                Uri uri;if(Uri.TryCreate(e.Request.Uri,UriKind.Absolute,out uri)&&uri.Scheme=="https"){
+                    if(uri.Host=="textures.lumaview.invalid"&&uri.AbsolutePath=="/"&&uri.Query.Length>1&&e.Request.Method=="GET"&&e.ResourceContext==CoreWebView2WebResourceContext.Image){
+                        ServeFbxTexture(environment,e,Uri.UnescapeDataString(uri.Query.Substring(1)));return;
+                    }
+                    if(uri.Host=="viewer.lumaview.invalid"||uri.Host=="model.lumaview.invalid")return;
+                }
                 if(e.Request.Uri.StartsWith("data:")||e.Request.Uri.StartsWith("blob:"))return;
                 e.Response=environment.CreateWebResourceResponse(new MemoryStream(),403,"Local resources only","");
             };
@@ -168,6 +219,26 @@ sealed partial class ModelViewer:MediaViewerForm {
             core.NavigationCompleted+=delegate(object s,CoreWebView2NavigationCompletedEventArgs e){if(!e.IsSuccess&&!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+e.WebErrorStatus;};
             core.Navigate("https://viewer.lumaview.invalid/index.html");
         }catch(Exception ex){if(!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+(String.IsNullOrEmpty(ComponentSetup.WebViewVersion())?ComponentSetup.Say("설정 → 구성 요소 → 다운로드 및 연결에서 WebView2를 설치한 뒤 모델을 다시 여세요.","Install WebView2 in Settings → Components → Download and connect, then reopen the model."):ex.Message);}
+    }
+    async void ServeFbxTexture(CoreWebView2Environment environment,CoreWebView2WebResourceRequestedEventArgs request,string reference){
+        using(var deferral=request.GetDeferral()){
+            FileStream stream=null;
+            try{
+                stream=await System.Threading.Tasks.Task.Run(delegate{
+                    string file=FbxTextureFiles.Resolve(path,reference);
+                    return file==null?null:new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+                });
+                if(!closing){
+                    const string headers="Access-Control-Allow-Origin: https://viewer.lumaview.invalid\r\nCache-Control: no-store";
+                    string suffix=stream==null?"":Path.GetExtension(stream.Name).ToLowerInvariant().TrimStart('.');
+                    string contentType=suffix=="jpg"||suffix=="jfif"?"jpeg":suffix=="svg"?"svg+xml":suffix=="tif"?"tiff":suffix;
+                    request.Response=environment.CreateWebResourceResponse(stream,stream==null?404:200,stream==null?"Not Found":"OK",headers+(stream==null?"":"\r\nContent-Type: image/"+contentType));
+                    stream=null; // WebView2 owns the response stream for the duration of the request.
+                }
+            }catch(Exception){
+                if(!closing)request.Response=environment.CreateWebResourceResponse(null,404,"Not Found","Access-Control-Allow-Origin: https://viewer.lumaview.invalid");
+            }finally{if(stream!=null)stream.Dispose();}
+        }
     }
     async void OnMessage(object sender,CoreWebView2WebMessageReceivedEventArgs e){
         if(closing||!e.Source.StartsWith("https://viewer.lumaview.invalid/",StringComparison.OrdinalIgnoreCase))return;
