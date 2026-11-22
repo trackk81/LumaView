@@ -46,7 +46,7 @@ static class MediaFiles {
         finally{PropVariantClear(ref value);if(store!=null)Marshal.FinalReleaseComObject(store);if(initialized>=0)CoUninitialize();}
     }
     // Called by the gallery/filmstrip background loaders, never the UI thread.
-    static Bitmap ReadVideoThumbnail(string path){
+    internal static Bitmap ReadShellThumbnail(string path){
         int initialized=CoInitializeEx(IntPtr.Zero,0);IImageFactory factory=null;IntPtr handle=IntPtr.Zero;
         try {
             Guid iid=typeof(IImageFactory).GUID;
@@ -63,7 +63,7 @@ static class MediaFiles {
     public static Bitmap VideoTile(string path){
         var bitmap=new Bitmap(180,120);using(var g=Graphics.FromImage(bitmap)){
             g.Clear(Color.FromArgb(30,36,45));
-            using(var preview=ReadVideoThumbnail(path)){
+            using(var preview=ReadShellThumbnail(path)){
                 if(preview!=null){
                     float scale=Math.Min(180f/preview.Width,120f/preview.Height);
                     float w=preview.Width*scale,h=preview.Height*scale;

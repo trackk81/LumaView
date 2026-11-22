@@ -114,6 +114,7 @@ class Canvas : Control {
         set{if(ReferenceEquals(image,value))return;image=value;InvalidateGpuImage();}
     }
     GpuCanvas gpu;
+    internal WheelSidebar Sidebar;
     bool gpuUnavailable;
     [DllImport("user32.dll")]
     static extern bool ValidateRect(IntPtr window,IntPtr rectangle);
@@ -133,8 +134,10 @@ class Canvas : Control {
                 float scale=(float)ViewScale;
                 bool opaque=Album.OpaqueImages.TryGetValue(Image,out marker)||
                     (!System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat)&&(Image.PixelFormat&PixelFormat.Indexed)==0);
+                var sidebar=Sidebar==null?null:Sidebar.Layer();
                 if(gpu.Render(Handle,ClientSize,Image,ImageBounds(scale),scale,BackColor,
-                    opaque,CheckerSize,BackgroundOne,Checker?BackgroundTwo:BackgroundOne,GetDetailsLayer(),DetailsLocation)){
+                    opaque,CheckerSize,BackgroundOne,Checker?BackgroundTwo:BackgroundOne,GetDetailsLayer(),DetailsLocation,
+                    sidebar,sidebar==null?Point.Empty:Sidebar.Location,sidebar==null?0:Sidebar.Opacity)){
                     ValidateRect(Handle,IntPtr.Zero);
                     message.Result=IntPtr.Zero;
                     return;
@@ -274,6 +277,15 @@ class Canvas : Control {
         DrawVisibleImage(e,r,scale);
         var layer=GetDetailsLayer();
         if(layer!=null)e.Graphics.DrawImageUnscaled(layer,DetailsLocation);
+        var sidebar=Sidebar==null?null:Sidebar.Layer();
+        if(sidebar!=null){
+            var dest=new Rectangle(Sidebar.Location,sidebar.Size);
+            if(Sidebar.Opacity>=1)e.Graphics.DrawImageUnscaled(sidebar,dest.Location);
+            else using(var attributes=new ImageAttributes()){
+                attributes.SetColorMatrix(new ColorMatrix{Matrix33=Sidebar.Opacity});
+                e.Graphics.DrawImage(sidebar,dest,0,0,sidebar.Width,sidebar.Height,GraphicsUnit.Pixel,attributes);
+            }
+        }
     }
 }
 partial class Viewer : Form {
@@ -289,6 +301,8 @@ partial class Viewer : Form {
     bool full;
     bool imageFullscreen,fullscreenAfterLoad;
     ToolStripButton imageModeButton;
+    readonly ToolStripButton sidebarButton=new ToolStripButton();
+    int wheelTarget=-1,loadingImageIndex=-1,wheelRemainder;
     FullscreenChrome chrome;
     Rectangle oldBounds;
     Size galleryMinimumSize;
@@ -301,7 +315,19 @@ partial class Viewer : Form {
         Font=new Font("Segoe UI",10); BackColor=Ui.Background; KeyPreview=true; AllowDrop=true;
         toolbar.GripStyle=ToolStripGripStyle.Hidden; toolbar.Padding=new Padding(10,8,10,8); toolbar.BackColor=Color.FromArgb(38,42,48); toolbar.ForeColor=Color.White; toolbar.RenderMode=ToolStripRenderMode.System;
         AddShortcut(Ui.T("탐색기"),ToggleExplorer,"explorer"); Add(Ui.T("목록"),ShowPicker,"Enter"); AddShortcut(Ui.T("열기"),Choose,"open"); AddShortcut(Ui.T("폴더"),Folder,"folder"); Sep();
-        AddShortcut(Ui.T("◀ 이전"),delegate{Navigate(-1);},"prev"); AddShortcut(Ui.T("다음 ▶"),delegate{Navigate(1);},"next"); Sep();
+        AddShortcut(Ui.T("◀ 이전"),delegate{Navigate(-1);},"prev"); AddShortcut(Ui.T("다음 ▶"),delegate{Navigate(1);},"next");
+        canvas.Sidebar=new WheelSidebar(canvas);
+        sidebarButton.Text=Ui.T("사이드바");sidebarButton.ToolTipText=Ui.T("휠로 이미지를 넘길 때 주변 썸네일 표시");
+        sidebarButton.DisplayStyle=ToolStripItemDisplayStyle.Text;sidebarButton.CheckOnClick=true;
+        sidebarButton.Checked=Ui.WheelSidebarEnabled;sidebarButton.Available=false;
+        sidebarButton.Click+=delegate{
+            Ui.WheelSidebarEnabled=sidebarButton.Checked;
+            if(!sidebarButton.Checked)canvas.Sidebar.Hide();
+            else if(imageFullscreen)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
+            try{Ui.Save(Ui.Language,Ui.Theme);}catch(IOException){}catch(UnauthorizedAccessException){}
+            canvas.Focus();
+        };
+        toolbar.Items.Add(sidebarButton);Sep();
         AddShortcut("−",delegate{Zoom(1/1.2);},"zoomOut"); AddShortcut("+",delegate{Zoom(1.2);},"zoomIn");
         AddShortcut(Ui.T("화면 맞춤"),delegate{canvas.Fit=true;canvas.Reset();},"fit"); AddShortcut("100%",delegate{canvas.Fit=false;canvas.Zoom=1;canvas.Reset();},"actualSize"); Sep();
         AddShortcut("↶",delegate{Rotate(false);},"rotateLeft"); AddShortcut(Ui.T("↷ 회전"),delegate{Rotate(true);},"rotateRight"); Sep();
@@ -323,12 +349,13 @@ partial class Viewer : Form {
         canvas.MouseWheel+=delegate(object sender,MouseEventArgs e){
             if(!full||e.Delta==0)return;
             if((ModifierKeys&Keys.Control)!=0)canvas.ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location);
+            else if(imageFullscreen)FullscreenWheel(e.Delta);
             else Navigate(e.Delta<0?1:-1);
         };
         slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
-        FormClosed+=delegate{if(chrome!=null)chrome.Dispose();slide.Dispose();album.Dispose();};
+        FormClosed+=delegate{if(chrome!=null)chrome.Dispose();canvas.Sidebar.Dispose();slide.Dispose();album.Dispose();};
         Ui.Apply(this);Ui.Apply(toolbar);RefreshShortcutTooltips();
         UpdateInfo(); if(path!=null) Shown+=delegate{
             enterAfterLoad=startupOpening;
@@ -349,7 +376,28 @@ partial class Viewer : Form {
     void Guard(Action action){try{action();}catch(Exception ex){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
     void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitImageView();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}if(!full)enterAfterLoad=true;LoadAsync(path,-1);}
     void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
-    void Loaded(){canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current)); SyncExplorer();}
+    void Loaded(){
+        canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();
+        if(imageFullscreen&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
+        else canvas.Sidebar.Select(album.Files,album.Index,album.Image);
+        Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current));SyncExplorer();
+    }
+    void FullscreenWheel(int delta){
+        if(album.Index<0||(busy&&loadingImageIndex<0))return;
+        if(sidebarButton.Checked)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
+        wheelRemainder+=delta;
+        int steps=wheelRemainder/SystemInformation.MouseWheelScrollDelta;
+        wheelRemainder%=SystemInformation.MouseWheelScrollDelta;
+        if(steps==0)return;
+        int from=wheelTarget>=0?wheelTarget:busy?loadingImageIndex:album.Index;
+        wheelTarget=Math.Max(0,Math.Min(album.Files.Length-1,from-steps));
+        ContinueWheel();
+    }
+    void ContinueWheel(){
+        if(busy||wheelTarget<0)return;
+        if(!imageFullscreen||wheelTarget==album.Index){wheelTarget=-1;return;}
+        Select(album.Index+Math.Sign(wheelTarget-album.Index));
+    }
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
     void Rotate(bool clockwise){if(busy || album.Image==null)return;var orig=Album.OriginalSize(album.Image);bool scaled=orig.Width!=album.Image.Width||orig.Height!=album.Image.Height;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);if(scaled)Album.SetOriginalSize(album.Image,new Size(orig.Height,orig.Width));canvas.InvalidateGpuImage();canvas.Reset();}

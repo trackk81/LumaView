@@ -266,6 +266,8 @@ partial class Viewer {
         Update();
     }
     async void LoadAsync(string path,int index){
+        loadingImageIndex=index;
+        if(path!=null){wheelTarget=-1;wheelRemainder=0;canvas.Sidebar.Hide();}
         busy=true;UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
         var files=(string[])album.Files.Clone();
         try{
@@ -275,8 +277,8 @@ partial class Viewer {
             if(enterAfterLoad && !full)EnterImageView();
             if(fullscreenAfterLoad && full)SetImageFullscreen(true);
             if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}
-        }catch(Exception ex){if(!IsDisposed){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
-        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();}}
+        }catch(Exception ex){wheelTarget=-1;if(!IsDisposed){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
+        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;loadingImageIndex=-1;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();ContinueWheel();}}
     }
     void EnterImageView(bool allowEmpty=false){
         if((album.Image==null&&!allowEmpty) || full)return;
@@ -294,6 +296,8 @@ partial class Viewer {
     void SetImageFullscreen(bool enabled){
         if(!full||imageFullscreen==enabled)return;
         imageFullscreen=enabled;
+        sidebarButton.Available=enabled;
+        if(!enabled){wheelTarget=-1;wheelRemainder=0;canvas.Sidebar.Hide();}
         if(enabled){
             var screen=Screen.FromControl(this).Bounds;
             oldState=WindowState;

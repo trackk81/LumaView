@@ -7,6 +7,7 @@ using System.Windows.Forms;
 namespace LumaView {
 static class Ui {
     public static string Language="ko",Theme="dark";
+    public static bool WheelSidebarEnabled=true;
     public static readonly string SettingsPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LumaView","settings.ini");
     static readonly Dictionary<string,string> english=new Dictionary<string,string>();
     static readonly Dictionary<string,string> korean=new Dictionary<string,string>();
@@ -15,10 +16,11 @@ static class Ui {
     public static Color[] CustomColors=DefaultColors();
     public static Color[] DefaultColors(){return new[]{Color.FromArgb(68,68,68),Color.FromArgb(68,68,68),Color.FromArgb(235,235,235),Color.FromArgb(90,90,90),Color.FromArgb(97,97,97)};}
     static readonly string[] ColorKeys={"background","surface","text","highlight","border"};
-    public static void Load(){Language="ko";Theme="dark";CustomColors=DefaultColors();Shortcuts.ResetDefaults();try{
+    public static void Load(){Language="ko";Theme="dark";WheelSidebarEnabled=true;CustomColors=DefaultColors();Shortcuts.ResetDefaults();try{
         if(!File.Exists(SettingsPath))return;
         foreach(string line in File.ReadAllLines(SettingsPath)){
             if(line=="language=en")Language="en";
+            if(line=="wheelSidebar=off")WheelSidebarEnabled=false;
             if(line=="theme=light")Theme="light";
             if(line=="theme=custom"||line=="theme=medium")Theme="custom";
             for(int i=0;i<ColorKeys.Length;i++){
@@ -45,6 +47,7 @@ static class Ui {
         var snapshot=(Color[])colors.Clone();
         var keySnapshot=shortcuts==null?Shortcuts.Snapshot():new Dictionary<string,Keys>(shortcuts,StringComparer.Ordinal);
         string data="language="+language+"\r\ntheme="+theme+"\r\n";
+        data+="wheelSidebar="+(WheelSidebarEnabled?"on":"off")+"\r\n";
         for(int i=0;i<ColorKeys.Length;i++)data+="color."+ColorKeys[i]+"="+Hex(snapshot[i])+"\r\n";
         foreach(var action in Shortcuts.Actions){
             Keys value;
@@ -114,7 +117,9 @@ static class Ui {
         public override Color ButtonSelectedGradientBegin{get{return Highlight;}}public override Color ButtonSelectedGradientEnd{get{return Highlight;}}
         public override Color ButtonCheckedGradientBegin{get{return Highlight;}}public override Color ButtonCheckedGradientMiddle{get{return Highlight;}}public override Color ButtonCheckedGradientEnd{get{return Highlight;}}
     }
-    const string Translations=@"스카이돔	Sky dome
+    const string Translations=@"사이드바	Sidebar
+휠로 이미지를 넘길 때 주변 썸네일 표시	Show nearby thumbnails while scrolling through images
+스카이돔	Sky dome
 돔 밝기	Dome brightness
 라이트 설정	Light settings
 라이트 클릭: 선택·이동 · 더블클릭: 색상·강도 · L: 추가	Click light: select/move · Double-click: color/intensity · L: add
