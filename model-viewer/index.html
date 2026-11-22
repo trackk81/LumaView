@@ -7,6 +7,20 @@
 #playback input{accent-color:#80c7ff}#playback input[type=range]{flex:1 1 100px;min-width:70px;cursor:pointer;margin:0}
 #playback output{font-variant-numeric:tabular-nums;white-space:nowrap}#playback label{display:flex;align-items:center;gap:4px;cursor:pointer}
 #playback :focus-visible{outline:2px solid #80c7ff;outline-offset:2px}
+#materials{position:absolute;z-index:5;top:calc(var(--viewer-top,0px) + 8px);right:10px;box-sizing:border-box;width:min(328px,calc(100% - 20px));max-height:calc(100% - var(--viewer-top,0px) - var(--playback-inset,0px) - 18px);overflow:auto;padding:15px;border:1px solid #485363;border-radius:10px;background:#202730fa;color:#edf1f6;font:14px/1.45 "Segoe UI","Malgun Gothic",sans-serif;color-scheme:dark}
+#materials[hidden],#materials p:empty{display:none}
+#materials header,#materials .material-check,#materials .material-field{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+#materials header,#materials .material-field{justify-content:space-between}
+#materials header strong{font-size:16px}
+#materials select,#materials button{font:inherit;color:inherit;border:1px solid #506077;border-radius:5px;background:#303b49;padding:4px 8px;cursor:pointer}
+#materials select{min-width:0;flex:1;max-width:72%}
+#materials button:disabled,#materials input:disabled{opacity:.55;cursor:default}
+#materials input{accent-color:#80c7ff}
+#materials fieldset{min-width:0;margin:4px 0 14px;padding:4px 0 0;border:0;border-top:1px solid #485363}
+#materials legend{padding:0 6px 0 0}#materials .material-slot{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;margin-top:8px}
+#materials .material-filename{font-size:12px;color:#becada;overflow-wrap:anywhere}#materials #material-cutoff{width:100%;margin:0 0 14px}
+#materials label[for=material-cutoff]{margin-bottom:4px}
+#materials p{margin:4px 0 10px;color:#b8c9de}#materials [data-error]{color:#ffb79f}
 @media(max-width:560px){#playback{gap:6px 8px}#playback input[type=range]{order:1;flex-basis:100%}#playback select{flex:1 1 70px;max-width:40%}#playback button{min-width:58px}}
 </style><script type="importmap">{"imports":{"three":"./vendor/build/three.module.js","three/addons/":"./vendor/addons/"}}</script></head><body><div id="playback" role="group" hidden>
 <button type="button"></button><select></select><input type="range" min="0" step="any"><output aria-live="off"></output>

@@ -12,6 +12,7 @@ using Microsoft.Web.WebView2.WinForms;
 namespace LumaView {
 static class FbxTextureFiles {
     static readonly string[] imageExtensions={".png",".jpg",".jpeg",".jfif",".webp",".gif",".bmp",".avif",".svg",".ico",".tga",".tif",".tiff",".dds"};
+    static readonly string[] exportExtensions={".png",".jpg",".jpeg",".webp"};
 
     // Never follow a path from the author's computer. Only serve image files in the model
     // directory or the package's adjacent textures directory.
@@ -32,7 +33,7 @@ static class FbxTextureFiles {
         string name=Path.GetFileName(relative);
         if(String.IsNullOrEmpty(name)||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0)return null;
         string ext=Path.GetExtension(name).ToLowerInvariant();
-        bool sourceImage=ext==".psd"||ext==".psb";
+        bool sourceImage=ext==".psd"||ext==".psb"||ext==".tga";
         if(!sourceImage&&!imageExtensions.Contains(ext))return null;
 
         var candidates=new System.Collections.Generic.List<string>();
@@ -43,8 +44,8 @@ static class FbxTextureFiles {
         var paths=candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if(sourceImage){
             foreach(string file in paths){
-                // A single exported image with the same stem can stand in for the PSD.
-                var matches=new[]{".png",".jpg",".jpeg",".webp"}.Select(e=>Path.ChangeExtension(file,e))
+                // Exporters can replace the extension (wing.png) or append it (wing.tga.png).
+                var matches=exportExtensions.SelectMany(e=>new[]{Path.ChangeExtension(file,e),file+e})
                     .Where(p=>Available(p,root)||Available(p,sibling)).Take(2).ToArray();
                 if(matches.Length!=0)return matches.Length==1?matches[0]:null;
             }
@@ -117,12 +118,14 @@ sealed partial class ModelViewer:MediaViewerForm {
     FormWindowState windowState;
     ToolStripButton modeButton;
     ToolStripButton detailsButton,lightButton,lightSettingsButton;
-    bool lightSelected,effectsPanelOpen;
+    bool lightSelected,effectsPanelOpen,materialPanelOpen;
     readonly System.Collections.Generic.Dictionary<string,ToolStripButton> visualButtons=new System.Collections.Generic.Dictionary<string,ToolStripButton>();
     string statistics="";
     public ModelViewer(string file,Rectangle bounds){
         path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
-        Add(Ui.T("목록으로 (Esc)"),delegate{Close();});AddConversionMenu();Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
+        Add(Ui.T("목록으로 (Esc)"),delegate{Close();});
+        var materialButton=Add(ComponentSetup.Say("재질","Materials"),delegate{Command("materials");});materialButton.Enabled=false;materialButton.Tag="model";
+        AddConversionMenu();Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
         modeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
         modeButton.ToolTipText=Shortcuts.Format("fullscreen");
         var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
@@ -232,6 +235,10 @@ sealed partial class ModelViewer:MediaViewerForm {
                     const string headers="Access-Control-Allow-Origin: https://viewer.lumaview.invalid\r\nCache-Control: no-store";
                     string suffix=stream==null?"":Path.GetExtension(stream.Name).ToLowerInvariant().TrimStart('.');
                     string contentType=suffix=="jpg"||suffix=="jfif"?"jpeg":suffix=="svg"?"svg+xml":suffix=="tif"?"tiff":suffix;
+                    if(stream!=null){
+                        string name=Path.GetFileName(stream.Name);
+                        if(name!=Path.GetFileName(reference))web.CoreWebView2.PostWebMessageAsJson(json.Serialize(new{textureReference=reference,textureFile=name}));
+                    }
                     request.Response=environment.CreateWebResourceResponse(stream,stream==null?404:200,stream==null?"Not Found":"OK",headers+(stream==null?"":"\r\nContent-Type: image/"+contentType));
                     stream=null; // WebView2 owns the response stream for the duration of the request.
                 }
@@ -257,6 +264,7 @@ sealed partial class ModelViewer:MediaViewerForm {
             else if(message=="toggleFullscreen"){ToggleFullscreen();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}
             else if(message.StartsWith("renderPanel:")){effectsPanelOpen=message.EndsWith(":on");}
+            else if(message.StartsWith("materialPanel:")){materialPanelOpen=message.EndsWith(":on");}
             else if(message.StartsWith("renderBase:")){var data=json.Deserialize<System.Collections.Generic.Dictionary<string,object>>(message.Substring(11));foreach(var name in new[]{"ssao","flat","textures"})if(data.ContainsKey(name))visualButtons[name].Checked=Convert.ToBoolean(data[name]);}
             else if(message.StartsWith("lightMode:")){lightMode=message.EndsWith(":on");lightButton.Checked=lightMode;status.Text=lightMode?Ui.T("빈 공간을 클릭해 라이트를 배치하세요. Esc: 취소"):Ui.T("라이트 클릭: 선택·이동 · 더블클릭: 색상·강도 · L: 추가");}
             else if(message.StartsWith("lightSelected:")){lightSelected=message!="lightSelected:-1";lightSettingsButton.Enabled=lightSelected;if(lightSelected)status.Text=Ui.T("축 드래그: 라이트 이동 · 더블클릭/라이트 설정: 색상·강도 · Esc: 선택 해제");}
@@ -276,8 +284,8 @@ sealed partial class ModelViewer:MediaViewerForm {
     }
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
         if(Shortcuts.Matches("fullscreen",key)){ToggleFullscreen();return true;}
-        if(effectsPanelOpen&&web.ContainsFocus){
-            if(key==Keys.Escape){ToggleRenderEffects();return true;}
+        if((effectsPanelOpen||materialPanelOpen)&&web.ContainsFocus){
+            if(key==Keys.Escape){if(materialPanelOpen)Command("materials");else ToggleRenderEffects();return true;}
             return base.ProcessCmdKey(ref msg,key);
         }
         if(key==Keys.Escape){

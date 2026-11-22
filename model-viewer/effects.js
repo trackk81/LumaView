@@ -176,5 +176,5 @@ export function createEffects(renderer,scene,camera,changed,environment){
  }
  function visibility(open){panel.hidden=!open;window.chrome.webview.postMessage('renderPanel:'+(open?'on':'off'));}
  ui();
- return {settings,attach,material,apply,render,resize,preset,updateShadowLight,toggle(en){if(english!==en)ui(en);visibility(panel.hidden);},dispose(){composer?.passes.forEach(p=>p.dispose?.());composer?.dispose();gradient.dispose();toonCache.forEach(pair=>pair.forEach(m=>m.dispose()));ground?.geometry.dispose();ground?.material.dispose();light?.shadow.dispose();edgeGeometry.forEach(geometry=>geometry.dispose());edgeMaterial.dispose();}};
+ return {settings,attach,material,apply,render,resize,preset,updateShadowLight,close(){if(!panel.hidden)visibility(false);},toggle(en){if(english!==en)ui(en);visibility(panel.hidden);},dispose(){composer?.passes.forEach(p=>p.dispose?.());composer?.dispose();gradient.dispose();toonCache.forEach(pair=>pair.forEach(m=>m.dispose()));ground?.geometry.dispose();ground?.material.dispose();light?.shadow.dispose();edgeGeometry.forEach(geometry=>geometry.dispose());edgeMaterial.dispose();}};
 }

@@ -479,6 +479,7 @@ class FBXTreeParser {
 		}
 
 		const texture = loader.load( fileName );
+		if ( ! /^(blob:|data:)/i.test( fileName ) ) texture.userData.externalFileName = fileName;
 
 		// revert to initial path
 		loader.setPath( loaderPath );

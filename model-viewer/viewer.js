@@ -4,6 +4,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createEffects} from './effects.js';
 import {createEnvironment} from './environment.js';
 import {createPlayback} from './animation.js';
+import {createMaterialPanel} from './materials.js';
 
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -20,6 +21,13 @@ const post=text=>window.chrome.webview.postMessage(text);
 const message=document.getElementById('message');
 let renderer,scene,camera,controls,model,grid,axes,radius=1,wire=false,textures=true,originals=new Map(),plain=new Map(),ready=false,drawPending=false;
 const failed=new Set();
+const resolvedTextures=new Map();
+window.chrome.webview.addEventListener('message',({data})=>{
+ if(typeof data?.textureReference==='string'&&typeof data.textureFile==='string'){
+  resolvedTextures.set(data.textureReference,data.textureFile);
+  if(materialPanel?.isOpen)materialPanel.sync();
+ }
+});
 const fbxTexturePrefix='dollview-fbx-texture:';
 let englishMessages=false;
 function showMissingFiles(){
@@ -33,12 +41,12 @@ function showMissingFiles(){
   }catch{}
   return path.split(/[\\/]/).pop();
  });
- message.textContent=(englishMessages?'Missing material or texture files: ':'찾을 수 없는 재질·텍스처 파일: ')+[...new Set(names)].join(', ');
+ message.textContent=(englishMessages?'Missing original material or texture files: ':'원본에서 찾을 수 없는 재질·텍스처 파일: ')+[...new Set(names)].join(', ');
 }
 let flat=false,lightMode=false,detailsVisible=false;
-const flatMaps=new Map(),flatColors=new Map(),userLights=[];
+const flatMaterials=new Map(),userLights=[];
 const raycaster=new THREE.Raycaster();
-let effects,environment,playback;
+let effects,environment,playback,materialPanel;
 let overlayScene,transform,ssao=false,selectedLight=-1,aoStrength=1;
 let skyDome=false,skyStrength=1,studioEnvironment,ambient,keyLight;
 const skyMaterials=new Map(),skyLightingStrength={value:1};
@@ -144,9 +152,36 @@ window.selectEnvironment=id=>environment.select(id);
 window.importEnvironment=file=>environment.importFile(file);
 
 window.setSkyStrength=value=>{if(!Number.isFinite(value))return;skyStrength=Math.max(0,Math.min(10,value));applySky();};
+function viewportMaterial(source){
+ if(!flat&&effects?.settings.toon)return effects.material(source,textures);
+ let base=source;
+ if(!textures){
+  if(!plain.has(source))plain.set(source,new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,metalness:0,side:source.side}));
+  base=plain.get(source);
+ }
+ if(flat){
+  if(!flatMaterials.has(base))flatMaterials.set(base,new THREE.MeshBasicMaterial({
+   color:base.color??0xb4bdc9,map:base.map,vertexColors:base.vertexColors,alphaMap:base.alphaMap,
+   opacity:base.opacity,transparent:base.transparent,alphaTest:base.alphaTest,side:base.side,depthWrite:base.depthWrite,toneMapped:false
+  }));
+  return flatMaterials.get(base);
+ }
+ return textures&&skyDome&&environment.texture?skyMaterial(base):base;
+}
 function materials(){
- model.traverse(o=>{if(!o.isMesh)return;const source=originals.get(o);const list=Array.isArray(source)?source:[source];
- const next=list.map(m=>{if(flat){const cache=textures?flatMaps:flatColors;let p=cache.get(m);if(!p){p=new THREE.MeshBasicMaterial({color:m.color?.clone()||new THREE.Color(0xb4bdc9),map:textures?m.map:null,vertexColors:m.vertexColors,alphaMap:m.alphaMap,opacity:m.opacity,transparent:m.transparent,alphaTest:m.alphaTest,side:m.side,depthWrite:m.depthWrite,toneMapped:false});cache.set(m,p);}p.wireframe=wire;return p;}if(effects?.settings.toon){const p=effects.material(m,textures);p.wireframe=wire;return p;}if(textures){const p=skyDome&&environment.texture?skyMaterial(m):m;p.wireframe=wire;return p;}let p=plain.get(m);if(!p){p=new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,metalness:0,side:m.side});plain.set(m,p);}p.wireframe=wire;return p;});o.material=Array.isArray(source)?next:next[0];});draw();
+ const active=new Map();
+ function resolve(source){
+  if(!active.has(source)){
+   const base=viewportMaterial(source);
+   const material=textures&&materialPanel?materialPanel.preview(source,base):base;
+   material.wireframe=wire;
+   active.set(source,material);
+  }
+  return active.get(source);
+ }
+ for(const [mesh,source] of originals)mesh.material=Array.isArray(source)?source.map(resolve):resolve(source);
+ materialPanel?.setTextures(textures);
+ draw();
 }
 function capture(){
  if(renderer.getContext().isContextLost()||!viewportWidth)return;
@@ -155,9 +190,15 @@ function capture(){
 window.setRenderBase=value=>{ssao=value.ssao;skyDome=value.sky;flat=value.flat;if(typeof value.textures==='boolean')textures=value.textures;applySky();post('renderBase:'+JSON.stringify({ssao,sky:skyDome,flat,textures}));};
 window.setRenderEffects=value=>effects.apply(value);
 window.setRenderPreset=name=>effects.preset(name);
-window.toggleRenderEffects=en=>effects.toggle(en);
+window.toggleRenderEffects=en=>{materialPanel?.close();effects.toggle(en);};
 window.modelCommand=action=>{
  if(!ready)return;
+ if(action==='materials'){
+  effects.close();
+  if(lightMode)setLightMode(false);
+  if(selectedLight>=0)selectLight(-1);
+  materialPanel.toggle();
+ }
  if(['iso','front','side','top'].includes(action))fit(action);
  if(action==='sky'){skyDome=!skyDome;applySky();}
  if(action==='ssao'){ssao=!ssao;draw();}
@@ -191,10 +232,10 @@ window.addEventListener('keydown',e=>{
   if(!e.repeat)post('toggleFullscreen');
  }
 },true);
-window.addEventListener('keydown',e=>{if(e.target.closest?.('#effects'))return;if(e.key==='Escape'){e.preventDefault();if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(matchShortcut(shortcuts.details,e)){e.preventDefault();if(!e.repeat)post('toggleDetails');}else if(matchShortcut(shortcuts.fit,e)){e.preventDefault();fit();}else if(e.key.toLowerCase()==='l'&&!e.repeat&&!e.ctrlKey&&!e.altKey){e.preventDefault();setLightMode(!lightMode);}});
+window.addEventListener('keydown',e=>{if(e.target.closest?.('#effects,#materials'))return;if(e.key==='Escape'){e.preventDefault();if(materialPanel?.isOpen)materialPanel.close();else if(lightMode)setLightMode(false);else if(selectedLight>=0)selectLight(-1);else post('exit');}else if(matchShortcut(shortcuts.details,e)){e.preventDefault();if(!e.repeat)post('toggleDetails');}else if(matchShortcut(shortcuts.fit,e)){e.preventDefault();fit();}else if(e.key.toLowerCase()==='l'&&!e.repeat&&!e.ctrlKey&&!e.altKey){e.preventDefault();setLightMode(!lightMode);}});
 window.addEventListener('resize',resize);
 function setLightMode(enabled){
- if(!ready)return;if(enabled)selectLight(-1);lightMode=enabled;renderer.domElement.style.cursor=enabled?'crosshair':'';post('lightMode:'+(enabled?'on':'off'));
+ if(!ready)return;if(enabled){materialPanel?.close();selectLight(-1);}lightMode=enabled;renderer.domElement.style.cursor=enabled?'crosshair':'';post('lightMode:'+(enabled?'on':'off'));
 }
 function setRay(x,y){const rect=renderer.domElement.getBoundingClientRect();camera.updateMatrixWorld();scene.updateMatrixWorld(true);overlayScene.updateMatrixWorld(true);raycaster.setFromCamera(new THREE.Vector2((x-rect.left)/rect.width*2-1,-(y-rect.top)/rect.height*2+1),camera);}
 function lightHit(x,y){setRay(x,y);return raycaster.intersectObjects(userLights.filter(l=>l.active).map(l=>l.handle),false)[0]?.object.userData.lightId;}
@@ -215,6 +256,7 @@ window.removeModelLight=id=>{const item=userLights[id];if(!item?.active)return;i
 window.setModelDetails=(text,topPixels,visible,playbackInset=0)=>{
  const panel=document.getElementById('details');panel.textContent=text;panel.style.top=Math.ceil(topPixels/devicePixelRatio)+'px';detailsVisible=visible;panel.hidden=!visible;
  document.documentElement.style.setProperty('--playback-inset',Math.ceil(playbackInset/devicePixelRatio)+'px');
+ document.documentElement.style.setProperty('--viewer-top',Math.ceil(topPixels/devicePixelRatio)+'px');
 };
 function selectLight(id){
  if(transform.dragging){transform.reset();transform.pointerUp({button:0});}
@@ -234,7 +276,17 @@ function setupLightPicking(){
   gesture={id,x:e.clientX,y:e.clientY};e.preventDefault();e.stopImmediatePropagation();try{renderer.domElement.setPointerCapture(e.pointerId);}catch{}
  },true);
  renderer.domElement.addEventListener('pointerup',e=>{
-  if(!gesture){if(blank&&Math.hypot(e.clientX-blank.x,e.clientY-blank.y)<5)selectLight(-1);blank=null;return;}
+  if(!gesture){
+   if(blank&&!e.shiftKey&&Math.hypot(e.clientX-blank.x,e.clientY-blank.y)<5){
+    selectLight(-1);
+    if(materialPanel?.isOpen){
+     setRay(e.clientX,e.clientY);
+     const hit=raycaster.intersectObject(model,true).find(hit=>originals.has(hit.object));
+     if(hit){const source=originals.get(hit.object);materialPanel.select(Array.isArray(source)?source[hit.face.materialIndex]:source);}
+    }
+   }
+   blank=null;return;
+  }
   const hit=gesture;gesture=null;e.preventDefault();e.stopImmediatePropagation();if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);
   if(Math.hypot(e.clientX-hit.x,e.clientY-hit.y)>5)return;
   if(hit.id!==undefined){setLightMode(false);selectLight(hit.id);}
@@ -262,7 +314,7 @@ try{
  controls=new OrbitControls(camera,renderer.domElement);controls.addEventListener('change',draw);controls.enableDamping=false;setupLightPicking();
  const pmrem=new THREE.PMREMGenerator(renderer);const room=new RoomEnvironment();studioEnvironment=pmrem.fromScene(room);scene.environment=studioEnvironment.texture;room.dispose();pmrem.dispose();ambient=new THREE.HemisphereLight(0xffffff,0x505768,2);scene.add(ambient);keyLight=new THREE.DirectionalLight(0xffffff,2.5);keyLight.position.set(4,8,5);scene.add(keyLight);
  effects=createEffects(renderer,scene,camera,()=>{if(model)applySky();else draw();},environment);
- window.addEventListener('pagehide',()=>{playback?.dispose();effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
+ window.addEventListener('pagehide',()=>{playback?.dispose();materialPanel?.dispose();effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());flatMaterials.forEach(m=>m.dispose());plain.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
  window.loadModel=async(url,extension,english=false)=>{
   try{
    englishMessages=english;
@@ -287,6 +339,7 @@ try{
    }else throw new Error('Unsupported 3D format.');
    let meshes=0,triangles=0;const mats=new Set();model.updateMatrixWorld(true);model.traverse(o=>{if(!o.isMesh)return;meshes++;const geometry=o.geometry;if(!geometry.attributes.normal)geometry.computeVertexNormals();triangles+=Math.floor((geometry.index?geometry.index.count:geometry.attributes.position.count)/3)*(o.isInstancedMesh?o.count:1);originals.set(o,o.material);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>mats.add(m));});
    if(!meshes)throw new Error('No mesh found in this file.');
+   materialPanel=createMaterialPanel([...mats],english,extension==='gltf'||extension==='glb',materials,post,resolvedTextures);
    playback=createPlayback(model,clips,english,draw);
    const box=new THREE.Box3().setFromObject(model,true);const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());radius=size.length()/2;
    if(!Number.isFinite(radius)||radius<=0)throw new Error('Model bounds are empty or invalid.');

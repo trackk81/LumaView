@@ -70,6 +70,11 @@ static void FbxTextures(){
   File.WriteAllText(atlas,"test");File.WriteAllText(alpha,"test");
   Func<string,string> resolve=reference=>(string)Call("FbxTextureFiles","Resolve",Path.Combine(source,"Export.fbx"),reference);
   Check(resolve(@"..\Atlas.psd")==atlas&&resolve(@"..\props\props_alpha.psd")==alpha,"find exported FBX textures in a sibling textures directory");
+  string wing=Path.Combine(textures,"wing.tga.png");
+  File.WriteAllText(wing,"test");
+  Check(resolve("wing.tga")==wing,"find double-extension FBX color and opacity textures");
+  File.WriteAllText(Path.Combine(textures,"wing.png"),"test");
+  Check(resolve("wing.tga")==null,"skip ambiguous TGA exports");
   string exact=Path.Combine(sub,"props_alpha.png");File.WriteAllText(exact,"test");
   Check(resolve(@"props\props_alpha.png")==exact,"prefer the original FBX subdirectory when names collide");
   File.WriteAllText(Path.Combine(textures,"Atlas.png"),"test");
