@@ -65,6 +65,8 @@ partial class Viewer {
         if(busy||fileOperation)return;string source=FileCommandPath();if(source==null)return;if(!full&&sequenceGroups.ContainsKey(source)){MessageBox.Show(this,Ui.T("시퀀스의 개별 이름을 바꾸려면 SQ 묶기를 해제해 주세요."));return;}StopSlide();
         string target=FileCommands.Rename(this,source);if(target==null)return;
         for(int i=0;i<album.Files.Length;i++)if(String.Equals(album.Files[i],source,StringComparison.OrdinalIgnoreCase))album.Files[i]=target;
+        int mixed=Array.IndexOf(album.WheelFiles,source);
+        if(mixed>=0){album.WheelFiles[mixed]=target;Array.Sort(album.WheelFiles,new NaturalSort());wheelIndex=Array.IndexOf(album.WheelFiles,album.Current);canvas.Sidebar.Hide();}
         if(full){Text=AppUpdater.WindowTitle(Path.GetFileName(target));RefreshDetails();canvas.Invalidate();}
         else RefreshFileSelection(target);
     }

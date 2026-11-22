@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Drawing;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Collections.Generic;
@@ -15,6 +16,9 @@ namespace LumaView {
 static class MediaFiles {
     static readonly string[] videos={".mp4",".m4v",".mov",".wmv",".avi",".mpg",".mpeg",".mkv",".webm"};
     public static bool IsVideo(string path){return videos.Contains(Path.GetExtension(path).ToLowerInvariant());}
+    public static string[] ListImagesAndVideos(string directory){
+        return Directory.GetFiles(directory).Where(p=>Album.Supported(p)||IsVideo(p)).OrderBy(p=>p,new NaturalSort()).ToArray();
+    }
     public static bool Supported(string path){return Album.Supported(path)||IsVideo(path)||ModelFiles.Supported(path);}
     [StructLayout(LayoutKind.Sequential)] struct ThumbnailSize { public int Width,Height; }
     [ComImport,Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -60,10 +64,35 @@ static class MediaFiles {
             if(initialized>=0)CoUninitialize();
         }
     }
-    public static Bitmap VideoTile(string path){
+    // Some Windows installations lack a shell thumbnail provider for MOV, MKV or HEVC.
+    static Bitmap ReadDecoderThumbnail(string path){
+        string exe=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"video-runtime","mpv.exe");
+        if(!File.Exists(exe))return null;
+        var start=new ProcessStartInfo(exe){
+            UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,
+            WorkingDirectory=Path.GetDirectoryName(exe),
+            Arguments="--no-config --load-scripts=no --no-terminal --no-audio --no-sub --hwdec=no --vd-lavc-threads=1 "+
+                "--start=10% --frames=1 --vf=lavfi=[scale=192:160:force_original_aspect_ratio=decrease,format=rgb24] "+
+                "--ovc=png --of=image2pipe --o=- -- "+UpdateFiles.Quote(Path.GetFullPath(path))};
+        try{
+            using(var output=new MemoryStream())
+            using(var process=Process.Start(start)){
+                var read=process.StandardOutput.BaseStream.CopyToAsync(output);
+                if(!process.WaitForExit(4000)){
+                    if(!process.HasExited)process.Kill();
+                    process.WaitForExit();
+                }
+                read.GetAwaiter().GetResult();
+                if(process.ExitCode!=0||output.Length==0)return null;
+                output.Position=0;
+                using(var image=Image.FromStream(output))return new Bitmap(image);
+            }
+        }catch(IOException){return null;}catch(ExternalException){return null;}catch(InvalidOperationException){return null;}catch(ArgumentException){return null;}
+    }
+    public static Bitmap VideoTile(string path,bool decodeIfMissing=false){
         var bitmap=new Bitmap(180,120);using(var g=Graphics.FromImage(bitmap)){
             g.Clear(Color.FromArgb(30,36,45));
-            using(var preview=ReadShellThumbnail(path)){
+            using(var preview=ReadShellThumbnail(path)??(decodeIfMissing?ReadDecoderThumbnail(path):null)){
                 if(preview!=null){
                     float scale=Math.Min(180f/preview.Width,120f/preview.Height);
                     float w=preview.Width*scale,h=preview.Height*scale;
@@ -84,17 +113,70 @@ static class MediaFiles {
     }
 }
 partial class Viewer {
-    void OpenVideo(string path){
+    void OpenVideo(string path,bool fromDial=false){
         StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;
-        if(full&&!startupOpening)ExitImageView();
-        ShowFileFolder(path);
+        if(fromDial){canvas.Sidebar.Hide();chrome.Disable();}
+        else{
+            if(full&&!startupOpening)ExitImageView();
+            ShowFileFolder(path);
+        }
         var area=Screen.FromControl(this).WorkingArea;
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
-        playbackActive=true;try{using(var player=new VideoViewer(path,bounds))ShowMediaViewer(player);}finally{playbackActive=false;if(startupOpening&&!IsDisposed){startupOpening=false;ExitImageView();}}
+        string imagePath=null,lastPath=path;
+        Rectangle imageScreen=Rectangle.Empty;
+        string[] order=fromDial?album.WheelFiles:null;
+        playbackActive=true;
+        try{
+            using(var player=new VideoViewer(path,bounds,order,dialInput,fromDial)){
+                ShowMediaViewer(player);
+                order=player.WheelFiles;imagePath=player.RequestedImage;lastPath=player.CurrentFile;
+                if(imagePath!=null)imageScreen=Screen.FromRectangle(player.Bounds).Bounds;
+            }
+        }finally{playbackActive=false;startupOpening=false;}
         if(IsDisposed)return;
-        ShowFileFolder(path);
+        sidebarButton.Checked=Ui.WheelSidebarEnabled;
+        if(imagePath!=null){
+            EnterImageView(true);
+            if(!imageFullscreen)SetImageFullscreen(true,imageScreen);
+            else{Bounds=imageScreen;chrome.Enable();}
+            canvas.Focus();LoadAsync(imagePath,-1,order);
+            return;
+        }
+        dialInput.Reset();
+        if(full)ExitImageView();
+        ShowFileFolder(lastPath);
         fileList.Focus();UpdateBrowserInfo();
+    }
+}
+// mpv renders into a native child window. A click-through, per-pixel alpha window
+// keeps the same dial visible above that surface without covering its mouse input.
+sealed class VideoDialOverlay : Form {
+    [StructLayout(LayoutKind.Sequential,Pack=1)]
+    struct Blend {public byte Operation,Flags,Opacity,AlphaFormat;}
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr source);
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc,IntPtr obj);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("user32.dll")] static extern bool UpdateLayeredWindow(IntPtr hwnd,IntPtr screen,ref Point location,ref Size size,IntPtr dc,ref Point source,int key,ref Blend blend,int flags);
+    protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000|0x20|0x08000000;return p;}}
+    protected override bool ShowWithoutActivation{get{return true;}}
+    public VideoDialOverlay(){
+        FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.None;
+    }
+    public void Present(Form owner,Bitmap layer,Point location,float opacity){
+        var size=layer.Size;var source=Point.Empty;
+        if(!Visible)Bounds=new Rectangle(location,size);
+        var blend=new Blend{Opacity=(byte)Math.Round(255*opacity),AlphaFormat=1};
+        IntPtr dc=CreateCompatibleDC(IntPtr.Zero);
+        if(dc==IntPtr.Zero)return;
+        try{
+            IntPtr bitmap=layer.GetHbitmap(Color.FromArgb(0));
+            IntPtr previous=SelectObject(dc,bitmap);
+            try{
+                if(UpdateLayeredWindow(Handle,IntPtr.Zero,ref location,ref size,dc,ref source,0,ref blend,2)&&!Visible)Show(owner);
+            }finally{SelectObject(dc,previous);DeleteObject(bitmap);}
+        }finally{DeleteDC(dc);}
     }
 }
 sealed class VideoViewer : MediaViewerForm {
@@ -106,6 +188,15 @@ sealed class VideoViewer : MediaViewerForm {
     readonly Queue<int> frames=new Queue<int>();
     readonly FullscreenChrome chrome;
     readonly MpvPlayer player;
+    readonly MediaDialInput dialInput;
+    readonly WheelSidebar sidebar;
+    readonly VideoDialOverlay dialOverlay=new VideoDialOverlay();
+    readonly ToolStripButton sidebarButton;
+    bool dialDirty;
+    internal string[] WheelFiles{get;private set;}
+    internal string RequestedImage{get;private set;}
+    internal string CurrentFile{get{return current??files[index];}}
+    int wheelIndex;
     Task startup;
     ToolStripButton play,detailsButton;
     readonly ToolStripButton modeButton;
@@ -119,15 +210,25 @@ sealed class VideoViewer : MediaViewerForm {
     string codec="",hardware="",current;
     string[] files;
     int index;
-    public VideoViewer(string path,Rectangle bounds){
+    public VideoViewer(string path,Rectangle bounds):this(path,bounds,null,new MediaDialInput(),false){}
+    internal VideoViewer(string path,Rectangle bounds,string[] folderFiles,MediaDialInput input,bool startWithDial){
         Text=AppUpdater.WindowTitle(Path.GetFileName(path));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;ImeMode=ImeMode.Disable;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;
-        files=Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(path))).Where(MediaFiles.IsVideo).OrderBy(p=>p,new NaturalSort()).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,Path.GetFullPath(path),StringComparison.OrdinalIgnoreCase));
-        if(index<0){files=new[]{Path.GetFullPath(path)};index=0;}
+        path=Path.GetFullPath(path);dialInput=input;
+        WheelFiles=folderFiles??MediaFiles.ListImagesAndVideos(Path.GetDirectoryName(path));
+        files=WheelFiles.Where(MediaFiles.IsVideo).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
+        if(index<0){WheelFiles=files=new[]{path};index=0;}
+        wheelIndex=Array.IndexOf(WheelFiles,files[index]);
+        sidebar=new WheelSidebar(host,delegate(Rectangle area){dialDirty=true;});
         tools.GripStyle=ToolStripGripStyle.Hidden;tools.Padding=new Padding(10,8,10,8);
         Button(Ui.T("목록으로 (Esc)"),delegate{Close();});
         modeButton=Button(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
         modeButton.ToolTipText=Shortcuts.Format("fullscreen");
-        Button(Ui.T("◀ 이전 영상"),delegate{Next(-1);});Button(Ui.T("다음 영상 ▶"),delegate{Next(1);});tools.Items.Add(new ToolStripSeparator());
+        Button(Ui.T("◀ 이전 영상"),delegate{Next(-1);});Button(Ui.T("다음 영상 ▶"),delegate{Next(1);});
+        sidebarButton=WheelSidebar.ToggleButton(delegate{
+            if(Ui.WheelSidebarEnabled)RevealDial();else{sidebar.Hide();dialOverlay.Hide();}
+            host.Focus();
+        });
+        tools.Items.Add(sidebarButton);tools.Items.Add(new ToolStripSeparator());
         play=Button(Ui.T("Ⅱ 일시정지"),Toggle);Button(Ui.T("−5초"),delegate{Seek(-5);});Button(Ui.T("+5초"),delegate{Seek(5);});Button(Ui.T("처음으로"),Restart);
         Button(Ui.T("◀ 프레임 (D)"),delegate{StepFrame(-1);});Button(Ui.T("프레임 ▶ (F)"),delegate{StepFrame(1);});
         var flip=new ToolStripDropDownButton(Ui.T("반전"));flip.DropDownItems.Add(Ui.T("좌우 반전"),null,delegate{flipHorizontal=!flipHorizontal;ApplyFlip();});flip.DropDownItems.Add(Ui.T("상하 반전"),null,delegate{flipVertical=!flipVertical;ApplyFlip();});tools.Items.Add(flip);
@@ -142,14 +243,36 @@ sealed class VideoViewer : MediaViewerForm {
         seek.Scroll+=delegate{SeekAbsolute();};
         seek.MouseUp+=delegate{if(!dragging)return;dragging=false;SeekAbsolute();};
         seek.MouseCaptureChanged+=delegate{if(dragging&&!seek.Capture){dragging=false;SeekAbsolute();}};
-        host.MouseDown+=delegate{host.Focus();Toggle();};Controls.Add(host);
+        host.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left){host.Focus();Toggle();}};Controls.Add(host);
+        dialInput.Attach(host,()=>fullscreen&&!closing,MoveDial);
+        host.SizeChanged+=delegate{dialDirty=true;};
+        LocationChanged+=delegate{dialDirty=true;};
         chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var msg=new Message();return ProcessCmdKey(ref msg,key);});chrome.AddTop(details);chrome.AddTop(title);
         DockWindowControls();
         HandleCreated+=delegate{ModernUi.TitleBar(this);};
         player=new MpvPlayer(this);player.Message+=OnPlayerMessage;player.Failed+=ShowFailure;
-        timer.Tick+=delegate{UpdateTimeline();DrainNavigation();};
-        Shown+=delegate{startup=player.Start(host.Handle);LoadCurrent();timer.Start();};
-        FormClosed+=delegate{closing=true;loadVersion++;timer.Stop();timer.Dispose();chrome.Dispose();player.Dispose();};
+        timer.Tick+=delegate{UpdateTimeline();DrainNavigation();if(dialDirty)DrawDial();};
+        Shown+=delegate{
+            if(startWithDial){ToggleFullscreen();RevealDial();}
+            startup=player.Start(host.Handle);LoadCurrent();timer.Start();
+        };
+        FormClosed+=delegate{closing=true;loadVersion++;timer.Stop();timer.Dispose();sidebar.Dispose();dialOverlay.Dispose();chrome.Dispose();player.Dispose();};
+    }
+    void RevealDial(){if(fullscreen&&Ui.WheelSidebarEnabled)sidebar.Reveal(WheelFiles,wheelIndex,null);}
+    void DrawDial(){
+        dialDirty=false;
+        var layer=fullscreen?sidebar.Layer():null;
+        if(layer==null){dialOverlay.Hide();return;}
+        dialOverlay.Present(this,layer,host.PointToScreen(sidebar.Location),sidebar.Opacity);
+    }
+    void MoveDial(int steps){
+        int next=Math.Max(0,Math.Min(WheelFiles.Length-1,wheelIndex+steps));
+        if(next!=wheelIndex){
+            string path=WheelFiles[next];
+            if(!MediaFiles.IsVideo(path)){RequestedImage=path;Close();return;}
+            index=Array.IndexOf(files,path);LoadCurrent();
+        }
+        RevealDial();
     }
     void DockWindowControls(){
         chrome.DockToolbarInOwner();
@@ -161,6 +284,7 @@ sealed class VideoViewer : MediaViewerForm {
     void ToggleFullscreen(){
         if(closing)return;
         fullscreen=!fullscreen;
+        sidebarButton.Available=fullscreen;sidebarButton.Checked=Ui.WheelSidebarEnabled;
         if(fullscreen){
             var screen=Screen.FromControl(this).Bounds;
             windowState=WindowState;
@@ -171,6 +295,7 @@ sealed class VideoViewer : MediaViewerForm {
             chrome.AddTop(details);
             chrome.Enable();
         }else{
+            dialInput.Reset();sidebar.Hide();dialOverlay.Hide();
             DockWindowControls();
             FormBorderStyle=FormBorderStyle.Sizable;
             Bounds=windowBounds;
@@ -184,6 +309,7 @@ sealed class VideoViewer : MediaViewerForm {
     async void LoadCurrent(){
         int version=++loadVersion;player.CancelNavigation();pendingSeek=seekTarget=null;frames.Clear();dragging=resumeAfterScrub=false;
         current=files[index];ready=false;paused=false;ended=false;duration=position=frameRate=0;width=height=0;codec=hardware="";flipHorizontal=flipVertical=false;
+        wheelIndex=Array.IndexOf(WheelFiles,current);sidebar.Select(WheelFiles,wheelIndex,null);
         seek.Value=0;seek.Enabled=false;timing.Text=Ui.T("불러오는 중…");title.Text=Path.GetFileName(current);Text=AppUpdater.WindowTitle(title.Text);details.Text="";UpdatePlay();
         try{await startup;if(closing||version!=loadVersion)return;await player.Command("set_property","vf","");if(closing||version!=loadVersion)return;await player.Command("loadfile",current,"replace");}
         catch(Exception ex){if(!closing&&version==loadVersion)ShowFailure(ex.Message);}

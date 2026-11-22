@@ -265,20 +265,30 @@ partial class Viewer {
         Invalidate(true);
         Update();
     }
-    async void LoadAsync(string path,int index){
-        loadingImageIndex=index;
-        if(path!=null){wheelTarget=-1;wheelRemainder=0;canvas.Sidebar.Hide();}
+    async void LoadAsync(string path,int index,string[] wheelFiles=null){
+        var previousOrder=album.WheelFiles;
+        if(path!=null){
+            wheelIndex=-1;canvas.Sidebar.Hide();
+            if(wheelFiles==null)dialInput.Reset();
+            else album.WheelFiles=wheelFiles;
+            loadingWheelIndex=wheelFiles==null?-1:Array.IndexOf(wheelFiles,path);
+            wheelTarget=loadingWheelIndex;
+        }else loadingWheelIndex=Array.IndexOf(album.WheelFiles,album.Files[index]);
         busy=true;UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
         var files=(string[])album.Files.Clone();
         try{
-            var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.Open(path);else{a.Files=files;a.Select(index);}return a;}catch{a.Dispose();throw;}});
+            var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.OpenFromFolder(path,wheelFiles);else{a.Files=files;a.Select(index);}return a;}catch{a.Dispose();throw;}});
             if(IsDisposed){next.Dispose();return;}
+            if(path!=null)album.WheelFiles=next.WheelFiles;
             canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;next.Dispose();detailsFile=null;Loaded();
             if(enterAfterLoad && !full)EnterImageView();
             if(fullscreenAfterLoad && full)SetImageFullscreen(true);
             if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}
-        }catch(Exception ex){wheelTarget=-1;if(!IsDisposed){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
-        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;loadingImageIndex=-1;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();ContinueWheel();}}
+        }catch(Exception ex){
+            wheelTarget=-1;album.WheelFiles=previousOrder;wheelIndex=Array.IndexOf(previousOrder,album.Current);
+            if(!IsDisposed){StopSlide();if(wheelFiles!=null&&album.Image==null)ExitImageView();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}
+        }
+        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;loadingWheelIndex=-1;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();ContinueWheel();}}
     }
     void EnterImageView(bool allowEmpty=false){
         if((album.Image==null&&!allowEmpty) || full)return;
@@ -293,13 +303,14 @@ partial class Viewer {
         canvas.Focus();
         canvas.Reset();
     }
-    void SetImageFullscreen(bool enabled){
+    void SetImageFullscreen(bool enabled,Rectangle? targetScreen=null){
         if(!full||imageFullscreen==enabled)return;
         imageFullscreen=enabled;
         sidebarButton.Available=enabled;
-        if(!enabled){wheelTarget=-1;wheelRemainder=0;canvas.Sidebar.Hide();}
+        sidebarButton.Checked=Ui.WheelSidebarEnabled;
+        if(!enabled){wheelTarget=-1;dialInput.Reset();canvas.Sidebar.Hide();}
         if(enabled){
-            var screen=Screen.FromControl(this).Bounds;
+            var screen=targetScreen??Screen.FromControl(this).Bounds;
             oldState=WindowState;
             oldBounds=WindowState==FormWindowState.Normal?Bounds:RestoreBounds;
             WindowState=FormWindowState.Normal;

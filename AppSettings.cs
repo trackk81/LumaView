@@ -118,7 +118,7 @@ static class Ui {
         public override Color ButtonCheckedGradientBegin{get{return Highlight;}}public override Color ButtonCheckedGradientMiddle{get{return Highlight;}}public override Color ButtonCheckedGradientEnd{get{return Highlight;}}
     }
     const string Translations=@"사이드바	Sidebar
-휠로 이미지를 넘길 때 주변 썸네일 표시	Show nearby thumbnails while scrolling through images
+휠 또는 가운데 버튼 드래그로 주변 파일 보기	Browse nearby files with the wheel or a middle-button drag
 스카이돔	Sky dome
 돔 밝기	Dome brightness
 라이트 설정	Light settings

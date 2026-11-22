@@ -11,10 +11,43 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace LumaView {
+// Shared by the two viewing surfaces so a held drag can cross an image/video transition.
+sealed class MediaDialInput {
+    int wheelDelta;
+    int? anchorY;
+    public void Reset(){wheelDelta=0;anchorY=null;}
+    public void Attach(Control surface,Func<bool> enabled,Action<int> navigate){
+        surface.MouseWheel+=delegate(object sender,MouseEventArgs e){
+            if(!enabled()||e.Delta==0||(Control.ModifierKeys&Keys.Control)!=0)return;
+            wheelDelta+=e.Delta;
+            int steps=wheelDelta/SystemInformation.MouseWheelScrollDelta;
+            wheelDelta%=SystemInformation.MouseWheelScrollDelta;
+            navigate(-steps);
+        };
+        surface.MouseDown+=delegate(object sender,MouseEventArgs e){
+            if(e.Button!=MouseButtons.Middle||!enabled())return;
+            anchorY=surface.PointToScreen(e.Location).Y;
+            surface.Focus();surface.Capture=true;navigate(0);
+        };
+        surface.MouseMove+=delegate(object sender,MouseEventArgs e){
+            if(!enabled())return;
+            if((e.Button&MouseButtons.Middle)==0){anchorY=null;return;}
+            if(!anchorY.HasValue)return;
+            int y=surface.PointToScreen(e.Location).Y;
+            int stride=Math.Max(1,48*surface.DeviceDpi/96);
+            int steps=(y-anchorY.Value)/stride;
+            if(steps==0)return;
+            anchorY+=steps*stride;
+            navigate(steps);
+        };
+        surface.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Middle){anchorY=null;surface.Capture=false;}};
+    }
+}
 sealed class WheelSidebar : IDisposable {
     const int Neighbors=5, HoldMs=1500, FadeMs=260, TurnMs=150;
     const double Angle=1.0/(Neighbors+.5); // Keep the full dial within a readable arc.
-    readonly Canvas canvas;
+    readonly Control canvas;
+    readonly Action<Rectangle> invalidate;
     readonly Stopwatch clock=Stopwatch.StartNew();
     readonly Timer timer=new Timer();
     readonly Dictionary<string,Bitmap> thumbnails=new Dictionary<string,Bitmap>(StringComparer.OrdinalIgnoreCase);
@@ -27,18 +60,30 @@ sealed class WheelSidebar : IDisposable {
     string selectedPath;
     public float Opacity {get;private set;}
 
-    public WheelSidebar(Canvas target){
-        canvas=target;
+    public WheelSidebar(Control target,Action<Rectangle> invalidateArea=null){
+        canvas=target;invalidate=invalidateArea??target.Invalidate;
         timer.Tick+=delegate{Tick();};
     }
+    internal static ToolStripButton ToggleButton(Action changed){
+        var button=new ToolStripButton(Ui.T("사이드바")){
+            ToolTipText=Ui.T("휠 또는 가운데 버튼 드래그로 주변 파일 보기"),
+            DisplayStyle=ToolStripItemDisplayStyle.Text,CheckOnClick=true,
+            Checked=Ui.WheelSidebarEnabled,Available=false};
+        button.Click+=delegate{
+            Ui.WheelSidebarEnabled=button.Checked;
+            try{Ui.Save(Ui.Language,Ui.Theme);}catch(IOException){}catch(UnauthorizedAccessException){}
+            changed();
+        };
+        return button;
+    }
     public void Reveal(string[] paths,int current,Bitmap image){
-        if(disposed||image==null||current<0||current>=paths.Length)return;
+        if(disposed||current<0||current>=paths.Length)return;
         visible=true;Opacity=1;hideAt=clock.ElapsedMilliseconds+HoldMs;
         Select(paths,current,image);
         InvalidateArea();Schedule();
     }
     public void Select(string[] paths,int current,Bitmap image){
-        if(!visible||image==null||current<0||current>=paths.Length)return;
+        if(!visible||current<0||current>=paths.Length)return;
         if(index==current&&selectedPath==paths[current]&&ReferenceEquals(selectedImage,image))return;
         int previous=index;files=paths;index=current;selectedPath=paths[current];selectedImage=image;
         if(previous!=current){
@@ -52,9 +97,11 @@ sealed class WheelSidebar : IDisposable {
             thumbnails.Remove(key);
         }
         // The selected image has already been decoded by the viewer.
-        Bitmap thumb;
-        if(thumbnails.TryGetValue(selectedPath,out thumb)&&thumb!=null)thumb.Dispose();
-        thumbnails[selectedPath]=ScaleThumbnail(image);
+        if(image!=null){
+            Bitmap thumb;
+            if(thumbnails.TryGetValue(selectedPath,out thumb)&&thumb!=null)thumb.Dispose();
+            thumbnails[selectedPath]=ScaleThumbnail(image);
+        }
         InvalidateLayer();LoadNearby();Schedule();
     }
     static Bitmap ScaleThumbnail(Bitmap image){
@@ -68,6 +115,7 @@ sealed class WheelSidebar : IDisposable {
     }
     static Bitmap ReadThumbnail(string path){
         try{
+            if(MediaFiles.IsVideo(path))return MediaFiles.VideoTile(path,true);
             if(!ExtendedDecoder.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant())){
                 using(var shell=MediaFiles.ReadShellThumbnail(path)){
                     if(shell!=null)return ScaleThumbnail(shell);
@@ -78,6 +126,7 @@ sealed class WheelSidebar : IDisposable {
         }catch(Exception){return null;} // A missing or damaged neighbor must not interrupt navigation.
     }
     string NextMissing(){
+        if(!thumbnails.ContainsKey(files[index]))return files[index];
         for(int distance=1;distance<=Neighbors+1;distance++){
             int before=index-distance,after=index+distance;
             if(before>=0&&!thumbnails.ContainsKey(files[before]))return files[before];
@@ -102,7 +151,7 @@ sealed class WheelSidebar : IDisposable {
         if(layer!=null){layer.Dispose();layer=null;}
         InvalidateArea();
     }
-    void InvalidateArea(){if(!disposed)canvas.Invalidate(Bounds);}
+    void InvalidateArea(){if(!disposed)invalidate(Bounds);}
     void Schedule(){
         if(!visible)return;
         long now=clock.ElapsedMilliseconds;

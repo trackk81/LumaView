@@ -46,6 +46,7 @@ class Album : IDisposable {
         return OriginalSizes.TryGetValue(bitmap,out value)?(Size)value:bitmap.Size;
     }
     public string[] Files = new string[0];
+    public string[] WheelFiles = new string[0];
     public int Index = -1;
     public Bitmap Image;
 
@@ -86,10 +87,12 @@ class Album : IDisposable {
             return bitmap;
         }
     }
-    public void Open(string path) {
+    public void Open(string path) {OpenFromFolder(path,null);}
+    public void OpenFromFolder(string path,string[] folderFiles) {
         path = Path.GetFullPath(path);
         bool directory = Directory.Exists(path);
-        var files = Directory.GetFiles(directory ? path : Path.GetDirectoryName(path)).Where(Supported).OrderBy(p=>p,new NaturalSort()).ToArray();
+        WheelFiles=folderFiles??MediaFiles.ListImagesAndVideos(directory?path:Path.GetDirectoryName(path));
+        var files=WheelFiles.Where(Supported).ToArray();
         if (files.Length == 0) throw new InvalidDataException("폴더에 지원하는 이미지가 없습니다.");
         int index = directory ? 0 : Array.FindIndex(files,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
         if (index < 0) throw new InvalidDataException("지원하지 않는 파일 형식입니다.");
@@ -202,7 +205,7 @@ class Canvas : Control {
         Resize += delegate { if(Fit) Reset(); else Invalidate(); };
         MouseDown += delegate(object s,MouseEventArgs e) { if(e.Button==MouseButtons.Left) { last=e.Location; Capture=true; Cursor=Cursors.Hand; Focus(); } };
         MouseUp += delegate { Capture=false; Cursor=Cursors.Default; };
-        MouseMove += delegate(object s,MouseEventArgs e) { if(Capture && Image!=null && e.Location!=last) { Pan=new PointF(Pan.X+e.X-last.X,Pan.Y+e.Y-last.Y); last=e.Location; Invalidate(); } };
+        MouseMove += delegate(object s,MouseEventArgs e) { if(Capture && (e.Button&MouseButtons.Left)!=0 && Image!=null && e.Location!=last) { Pan=new PointF(Pan.X+e.X-last.X,Pan.Y+e.Y-last.Y); last=e.Location; Invalidate(); } };
     }
     public double ViewScale { get { return Image==null?1:Fit?Math.Min((double)Math.Max(1,Width-32)/Image.Width,(double)Math.Max(1,Height-32)/Image.Height):Zoom; } }
     public void Reset() { Pan=PointF.Empty; Invalidate(); if(Changed!=null) Changed(); }
@@ -301,8 +304,9 @@ partial class Viewer : Form {
     bool full;
     bool imageFullscreen,fullscreenAfterLoad;
     ToolStripButton imageModeButton;
-    readonly ToolStripButton sidebarButton=new ToolStripButton();
-    int wheelTarget=-1,loadingImageIndex=-1,wheelRemainder;
+    readonly ToolStripButton sidebarButton;
+    readonly MediaDialInput dialInput=new MediaDialInput();
+    int wheelIndex=-1,wheelTarget=-1,loadingWheelIndex=-1;
     FullscreenChrome chrome;
     Rectangle oldBounds;
     Size galleryMinimumSize;
@@ -317,16 +321,11 @@ partial class Viewer : Form {
         AddShortcut(Ui.T("탐색기"),ToggleExplorer,"explorer"); Add(Ui.T("목록"),ShowPicker,"Enter"); AddShortcut(Ui.T("열기"),Choose,"open"); AddShortcut(Ui.T("폴더"),Folder,"folder"); Sep();
         AddShortcut(Ui.T("◀ 이전"),delegate{Navigate(-1);},"prev"); AddShortcut(Ui.T("다음 ▶"),delegate{Navigate(1);},"next");
         canvas.Sidebar=new WheelSidebar(canvas);
-        sidebarButton.Text=Ui.T("사이드바");sidebarButton.ToolTipText=Ui.T("휠로 이미지를 넘길 때 주변 썸네일 표시");
-        sidebarButton.DisplayStyle=ToolStripItemDisplayStyle.Text;sidebarButton.CheckOnClick=true;
-        sidebarButton.Checked=Ui.WheelSidebarEnabled;sidebarButton.Available=false;
-        sidebarButton.Click+=delegate{
-            Ui.WheelSidebarEnabled=sidebarButton.Checked;
-            if(!sidebarButton.Checked)canvas.Sidebar.Hide();
-            else if(imageFullscreen)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
-            try{Ui.Save(Ui.Language,Ui.Theme);}catch(IOException){}catch(UnauthorizedAccessException){}
+        sidebarButton=WheelSidebar.ToggleButton(delegate{
+            if(!Ui.WheelSidebarEnabled)canvas.Sidebar.Hide();
+            else if(imageFullscreen)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
             canvas.Focus();
-        };
+        });
         toolbar.Items.Add(sidebarButton);Sep();
         AddShortcut("−",delegate{Zoom(1/1.2);},"zoomOut"); AddShortcut("+",delegate{Zoom(1.2);},"zoomIn");
         AddShortcut(Ui.T("화면 맞춤"),delegate{canvas.Fit=true;canvas.Reset();},"fit"); AddShortcut("100%",delegate{canvas.Fit=false;canvas.Zoom=1;canvas.Reset();},"actualSize"); Sep();
@@ -345,12 +344,12 @@ partial class Viewer : Form {
         status.Padding=new Padding(14,6,14,6);info.AutoToolTip=true;
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
         SetupWorkspace(); toolbar.Dock=DockStyle.Top; Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
-        canvas.Changed+=UpdateInfo; canvas.DoubleClick+=delegate{Fullscreen();};
+        canvas.Changed+=UpdateInfo;canvas.MouseDoubleClick+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left)Fullscreen();};
+        dialInput.Attach(canvas,()=>imageFullscreen&&!playbackActive,FullscreenWheel);
         canvas.MouseWheel+=delegate(object sender,MouseEventArgs e){
             if(!full||e.Delta==0)return;
             if((ModifierKeys&Keys.Control)!=0)canvas.ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location);
-            else if(imageFullscreen)FullscreenWheel(e.Delta);
-            else Navigate(e.Delta<0?1:-1);
+            else if(!imageFullscreen)Navigate(e.Delta<0?1:-1);
         };
         slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
@@ -378,25 +377,27 @@ partial class Viewer : Form {
     void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
     void Loaded(){
         canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();
-        if(imageFullscreen&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
-        else canvas.Sidebar.Select(album.Files,album.Index,album.Image);
+        wheelIndex=Array.IndexOf(album.WheelFiles,album.Current);
+        if(imageFullscreen&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
+        else canvas.Sidebar.Select(album.WheelFiles,wheelIndex,album.Image);
         Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current));SyncExplorer();
     }
-    void FullscreenWheel(int delta){
-        if(album.Index<0||(busy&&loadingImageIndex<0))return;
-        if(sidebarButton.Checked)canvas.Sidebar.Reveal(album.Files,album.Index,album.Image);
-        wheelRemainder+=delta;
-        int steps=wheelRemainder/SystemInformation.MouseWheelScrollDelta;
-        wheelRemainder%=SystemInformation.MouseWheelScrollDelta;
+    void FullscreenWheel(int steps){
+        int from=wheelTarget>=0?wheelTarget:busy?loadingWheelIndex:wheelIndex;
+        if(from<0)return;
+        if(sidebarButton.Checked)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
         if(steps==0)return;
-        int from=wheelTarget>=0?wheelTarget:busy?loadingImageIndex:album.Index;
-        wheelTarget=Math.Max(0,Math.Min(album.Files.Length-1,from-steps));
+        wheelTarget=Math.Max(0,Math.Min(album.WheelFiles.Length-1,from+steps));
         ContinueWheel();
     }
     void ContinueWheel(){
         if(busy||wheelTarget<0)return;
-        if(!imageFullscreen||wheelTarget==album.Index){wheelTarget=-1;return;}
-        Select(album.Index+Math.Sign(wheelTarget-album.Index));
+        if(!imageFullscreen||wheelTarget==wheelIndex){wheelTarget=-1;return;}
+        string path=album.WheelFiles[wheelTarget];
+        if(MediaFiles.IsVideo(path)){
+            wheelTarget=-1;
+            OpenVideo(path,true);
+        }else Select(Array.IndexOf(album.Files,path));
     }
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
