@@ -120,20 +120,21 @@ class Canvas : Control {
     internal void InvalidateGpuImage(){if(gpu!=null)gpu.InvalidateImage();}
     protected override void OnHandleDestroyed(EventArgs e){
         if(gpu!=null){gpu.Dispose();gpu=null;}
+        if(detailsLayer!=null){detailsLayer.Dispose();detailsLayer=null;}
         gpuUnavailable=false;
         base.OnHandleDestroyed(e);
     }
     protected override void WndProc(ref Message message){
         object marker;
         if(message.Msg==0x000F && message.WParam==IntPtr.Zero && Visible && Image!=null &&
-            Width>0 && Height>0 && !gpuUnavailable && !ShowDetails && !FlipHorizontal && !FlipVertical){
+            Width>0 && Height>0 && !gpuUnavailable && !FlipHorizontal && !FlipVertical){
             try{
                 if(gpu==null)gpu=new GpuCanvas();
                 float scale=(float)ViewScale;
                 bool opaque=Album.OpaqueImages.TryGetValue(Image,out marker)||
                     (!System.Drawing.Image.IsAlphaPixelFormat(Image.PixelFormat)&&(Image.PixelFormat&PixelFormat.Indexed)==0);
                 if(gpu.Render(Handle,ClientSize,Image,ImageBounds(scale),scale,BackColor,
-                    opaque,CheckerSize,BackgroundOne,Checker?BackgroundTwo:BackgroundOne)){
+                    opaque,CheckerSize,BackgroundOne,Checker?BackgroundTwo:BackgroundOne,GetDetailsLayer(),DetailsLocation)){
                     ValidateRect(Handle,IntPtr.Zero);
                     message.Result=IntPtr.Zero;
                     return;
@@ -159,6 +160,31 @@ class Canvas : Control {
     public bool Fit = true;
     public double Zoom = 1;
     public bool ShowDetails; public string DetailsText="";
+    Bitmap detailsLayer;
+    string layerText;
+    int layerWrapWidth,layerDpi;
+    Point DetailsLocation {get{return new Point(14,14+detailsTopInset);}}
+    Bitmap GetDetailsLayer(){
+        if(!ShowDetails||String.IsNullOrEmpty(DetailsText))return null;
+        int width=Math.Max(80,Math.Min(760,Width-48)),dpi=DeviceDpi;
+        if(detailsLayer!=null&&layerText==DetailsText&&layerWrapWidth==width&&layerDpi==dpi)return detailsLayer;
+        using(var font=new Font("Malgun Gothic",11,FontStyle.Regular)){
+            SizeF measured;
+            using(var g=CreateGraphics())measured=g.MeasureString(DetailsText,font,width);
+            var layer=new Bitmap((int)Math.Ceiling(Math.Min(width,measured.Width))+24,(int)Math.Ceiling(measured.Height)+22,PixelFormat.Format32bppPArgb);
+            try{
+                layer.SetResolution(dpi,dpi);
+                using(var g=Graphics.FromImage(layer)){
+                    g.Clear(Color.FromArgb(195,15,17,20));
+                    g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                    g.DrawString(DetailsText,font,Brushes.White,new RectangleF(12,10,width,measured.Height+4));
+                }
+            }catch{layer.Dispose();throw;}
+            if(detailsLayer!=null)detailsLayer.Dispose();
+            detailsLayer=layer;layerText=DetailsText;layerWrapWidth=width;layerDpi=dpi;
+        }
+        return detailsLayer;
+    }
     int detailsTopInset;
     internal void SetDetailsTopInset(int inset){
         if(detailsTopInset==inset)return;
@@ -246,16 +272,8 @@ class Canvas : Control {
         float scale=(float)ViewScale;
         var r=ImageBounds(scale);
         DrawVisibleImage(e,r,scale);
-        if(ShowDetails && !String.IsNullOrEmpty(DetailsText)) {
-            using(var font=new Font("Malgun Gothic",11,FontStyle.Regular))
-            using(var bg=new SolidBrush(Color.FromArgb(195,15,17,20))) {
-                int width=Math.Max(80,Math.Min(760,Width-48));
-                var size=e.Graphics.MeasureString(DetailsText,font,width);
-                var box=new RectangleF(14,14+detailsTopInset,Math.Min(width,size.Width)+24,size.Height+22);
-                e.Graphics.FillRectangle(bg,box);
-                e.Graphics.DrawString(DetailsText,font,Brushes.White,new RectangleF(26,24+detailsTopInset,width,size.Height+4));
-            }
-        }
+        var layer=GetDetailsLayer();
+        if(layer!=null)e.Graphics.DrawImageUnscaled(layer,DetailsLocation);
     }
 }
 partial class Viewer : Form {

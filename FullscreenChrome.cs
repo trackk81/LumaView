@@ -30,6 +30,7 @@ sealed class ViewerToolStrip : ToolStrip {
 }
 // Owned windows keep controls above the WPF video surface without resizing it.
 sealed class FullscreenChrome : IDisposable {
+    internal const int FooterHeight=56;
     sealed class Overlay : Form {
         internal Func<Keys,bool> Shortcut;
         public Overlay(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.None;BackColor=Color.FromArgb(28,31,37);}
@@ -103,7 +104,7 @@ sealed class FullscreenChrome : IDisposable {
         int height=top.Padding.Top;foreach(Control c in top.Controls)if(c.Dock==DockStyle.Top)height+=c.Height;
         height=Math.Max(toolbar.Height,height);
         var topBounds=new Rectangle(area.X,area.Y,area.Width,height);if(top.Bounds!=topBounds)top.Bounds=topBounds;
-        var bottomBounds=new Rectangle(area.X,area.Bottom-56,area.Width,56);if(bottom.Bounds!=bottomBounds)bottom.Bounds=bottomBounds;
+        var bottomBounds=new Rectangle(area.X,area.Bottom-FooterHeight,area.Width,FooterHeight);if(bottom.Bounds!=bottomBounds)bottom.Bounds=bottomBounds;
         Point mouse=Cursor.Position;DateTime now=DateTime.UtcNow;
         bool inOwner=area.Contains(mouse);
         // Reveal over the actual controls, rather than a hard-to-find 22px strip.

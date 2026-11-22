@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -7,6 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace LumaView {
 // Reads the flat FLOAT channels used by Arnold Cryptomatte and depth AOVs.
@@ -15,6 +17,10 @@ static class ExrAov {
     sealed class Channel {
         public string Name;
         public int Type, XSampling, YSampling;
+    }
+    sealed class Block {
+        public int X,Y,Width,Height,RawLength;
+        public byte[] Packed;
     }
     static string Name(BinaryReader reader){
         var bytes=new List<byte>();
@@ -133,36 +139,17 @@ static class ExrAov {
             var offsets=new long[blockCount];
             for(int i=0;i<blockCount;i++)offsets[i]=reader.ReadInt64();
             long dataStart=stream.Position;
-            var visited=new bool[blockCount];
             var sizes=channels.Select(c=>c.Type==1?2:4).ToArray();
             var channelOffsets=new int[sizes.Length];int bytesPerPixel=0;
             for(int i=0;i<sizes.Length;i++){channelOffsets[i]=bytesPerPixel;bytesPerPixel+=sizes[i];}
             var colors=new int[width*height];
             var distances=crypto?null:new float[colors.Length];
             double closest=Double.PositiveInfinity;
-            foreach(long offset in offsets){
-                if(offset<dataStart||offset>stream.Length-(tiled?20:8))throw new InvalidDataException("Invalid EXR tile offset.");
-                stream.Position=offset;
-                int tx=tiled?reader.ReadInt32():0;
-                int ty;
-                if(tiled){
-                    ty=reader.ReadInt32();
-                    if(reader.ReadInt32()!=0||reader.ReadInt32()!=0)throw new InvalidDataException("Unexpected EXR tile level.");
-                }else{
-                    long scanline=(long)reader.ReadInt32()-yMin;
-                    if(scanline<0||scanline>=height||scanline%tileHeight!=0)throw new InvalidDataException("Invalid EXR scanline.");
-                    ty=(int)(scanline/tileHeight);
-                }
-                if(tx<0||tx>=columns||ty<0||ty>=rows||visited[ty*columns+tx])
-                    throw new InvalidDataException("Invalid or duplicate EXR tile.");
-                visited[ty*columns+tx]=true;
-                int x=tx*tileWidth,y=ty*tileHeight;
-                int w=Math.Min(tileWidth,width-x),h=Math.Min(tileHeight,height-y);
-                int packedLength=reader.ReadInt32();
-                long unpacked=(long)w*h*bytesPerPixel;
-                if(unpacked>64*1024*1024||packedLength<=0||packedLength>unpacked||stream.Position+packedLength>stream.Length)
-                    throw new InvalidDataException("EXR tile exceeds the preview limit.");
-                var data=DecodeBlock(Read(reader,packedLength),(int)unpacked,compression);
+            var blocks=ReadBlocks(reader,offsets,dataStart,tiled,yMin,width,height,tileWidth,tileHeight,bytesPerPixel);
+            Action<Block> render=delegate(Block block){
+                int x=block.X,y=block.Y,w=block.Width,h=block.Height;
+                var data=DecodeBlock(block.Packed,block.RawLength,compression);
+                double blockClosest=Double.PositiveInfinity;
                 for(int yy=0;yy<h;yy++){
                     int line=yy*w*bytesPerPixel;
                     for(int xx=0;xx<w;xx++){
@@ -183,9 +170,24 @@ static class ExrAov {
                         }else{
                             float distance=BitConverter.ToSingle(data,sample+channelOffsets[depth]*w);
                             // Arnold's empty background is written near 1e8.
-                            if(distance>0&&distance<1e7){distances[pixel]=distance;closest=Math.Min(closest,distance);}
+                            if(distance>0&&distance<1e7){distances[pixel]=distance;blockClosest=Math.Min(blockClosest,distance);}
                         }
                     }
+                }
+                if(!Double.IsPositiveInfinity(blockClosest))lock(distances){closest=Math.Min(closest,blockClosest);}
+            };
+            // Each worker owns one validated, non-overlapping block. Keep
+            // large blocks serial to bound temporary decompression buffers.
+            long blockBytes=(long)tileWidth*tileHeight*bytesPerPixel;
+            int workers=(int)Math.Min(Math.Min(Environment.ProcessorCount,4),Math.Max(1,8L*1024*1024/blockBytes));
+            if(workers==1||blockCount<4){
+                foreach(var block in blocks)render(block);
+            }else{
+                try{
+                    Parallel.ForEach(Partitioner.Create(blocks,EnumerablePartitionerOptions.NoBuffering),
+                        new ParallelOptions{MaxDegreeOfParallelism=workers},render);
+                }catch(AggregateException ex){
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.GetBaseException()).Throw();
                 }
             }
             if(!crypto){
@@ -196,6 +198,38 @@ static class ExrAov {
                 }
             }
             return ToBitmap(colors,width,height,maxWidth,maxHeight);
+        }
+    }
+    static IEnumerable<Block> ReadBlocks(BinaryReader reader,long[] offsets,long dataStart,bool tiled,int yMin,
+        int width,int height,int tileWidth,int tileHeight,int bytesPerPixel){
+        var stream=reader.BaseStream;
+        int columns=(width+tileWidth-1)/tileWidth,rows=(height+tileHeight-1)/tileHeight;
+        var visited=new bool[offsets.Length];
+        // Coordinates in each chunk determine its destination. Reading in
+        // physical order retains read-ahead across adjacent chunks on SMB.
+        Array.Sort(offsets);
+        foreach(long offset in offsets){
+            if(offset<dataStart||offset>stream.Length-(tiled?20:8))throw new InvalidDataException("Invalid EXR tile offset.");
+            if(stream.Position!=offset)stream.Position=offset;
+            int tx=tiled?reader.ReadInt32():0,ty;
+            if(tiled){
+                ty=reader.ReadInt32();
+                if(reader.ReadInt32()!=0||reader.ReadInt32()!=0)throw new InvalidDataException("Unexpected EXR tile level.");
+            }else{
+                long scanline=(long)reader.ReadInt32()-yMin;
+                if(scanline<0||scanline>=height||scanline%tileHeight!=0)throw new InvalidDataException("Invalid EXR scanline.");
+                ty=(int)(scanline/tileHeight);
+            }
+            if(tx<0||tx>=columns||ty<0||ty>=rows||visited[ty*columns+tx])
+                throw new InvalidDataException("Invalid or duplicate EXR tile.");
+            visited[ty*columns+tx]=true;
+            int x=tx*tileWidth,y=ty*tileHeight;
+            int w=Math.Min(tileWidth,width-x),h=Math.Min(tileHeight,height-y);
+            int packedLength=reader.ReadInt32();
+            long unpacked=(long)w*h*bytesPerPixel;
+            if(unpacked>64*1024*1024||packedLength<=0||packedLength>unpacked||stream.Position+packedLength>stream.Length)
+                throw new InvalidDataException("EXR tile exceeds the preview limit.");
+            yield return new Block{X=x,Y=y,Width=w,Height=h,RawLength=(int)unpacked,Packed=Read(reader,packedLength)};
         }
     }
     static Bitmap ToBitmap(int[] pixels,int width,int height,int maxWidth,int maxHeight){

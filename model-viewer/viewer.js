@@ -3,6 +3,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 
 import {createEffects} from './effects.js';
 import {createEnvironment} from './environment.js';
+import {createPlayback} from './animation.js';
 
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -22,15 +23,15 @@ const failed=new Set();
 let flat=false,lightMode=false,detailsVisible=false;
 const flatMaps=new Map(),flatColors=new Map(),userLights=[];
 const raycaster=new THREE.Raycaster();
-let effects,environment;
+let effects,environment,playback;
 let overlayScene,transform,ssao=false,selectedLight=-1,aoStrength=1;
-let skyDome=false,skyStrength=1,skyReflectionTexture,studioEnvironment,ambient,keyLight;
-const skyMaterials=new Map(),skyReflectionStrength={value:1};
+let skyDome=false,skyStrength=1,studioEnvironment,ambient,keyLight;
+const skyMaterials=new Map(),skyLightingStrength={value:1};
 function error(e){message.textContent=String(e?.message||e);post('error:'+message.textContent);}
 window.addEventListener('error',e=>error(e.error||e.message));
 window.addEventListener('unhandledrejection',e=>error(e.reason));
 let viewportWidth=0,viewportHeight=0;
-function render(){
+function render(now){
  drawPending=false;
  if(!renderer||renderer.getContext().isContextLost())return;
  const width=innerWidth,height=innerHeight;
@@ -44,7 +45,7 @@ function render(){
   renderer.setSize(width,height);
   resizeEffects();
  }
- controls.update();renderScene();
+ playback?.update(now);controls.update();renderScene();
 }
 function updateCameraDepth(){
  if(!model)return;
@@ -76,40 +77,49 @@ function fit(axis='iso'){
  camera.up.set(0,1,0);camera.position.copy(vector.normalize().multiplyScalar(distance));controls.target.set(0,0,0);controls.minDistance=radius*.01;controls.maxDistance=distance*30;controls.update();draw();
 }
 function skyMaterial(source){
- // Phong (FBX/MTL) does not inherit scene.environment and cannot sample a PMREM
- // CubeUV map. Keep its original maps/shading and give it a compatible panorama.
- if(!source.isMeshPhongMaterial&&!(source.isMeshStandardMaterial&&source.envMap))return source;
+ const legacy=source.isMeshPhongMaterial||source.isMeshLambertMaterial;
+ if(!legacy&&!(source.isMeshStandardMaterial&&source.envMap))return source;
  let material=skyMaterials.get(source);
  if(!material){
   material=source.clone();
-  if(source.isMeshPhongMaterial){
-   material.envMap=skyReflectionTexture;material.combine=THREE.AddOperation;
+  if(legacy){
+   // FBX and MTL materials need explicit image-based lighting. Use the same
+   // filtered HDR and rotation as PBR without replacing authored material maps.
    material.onBeforeCompile=(shader,renderer)=>{
     source.onBeforeCompile(shader,renderer);
-    shader.uniforms.lumaDomeStrength=skyReflectionStrength;
-    shader.fragmentShader='uniform float lumaDomeStrength;\n'+shader.fragmentShader;
-    // An additive reflection must respect specular color/map, including black
-    // (matte) materials. Multiplying by diffuse would keep black metal black.
-    const reflection=THREE.ShaderChunk.envmap_fragment.replace(
-     'envColor.xyz * specularStrength * reflectivity',
-     'envColor.xyz * specular * specularStrength * reflectivity * lumaDomeStrength');
-    shader.fragmentShader=shader.fragmentShader.replace('#include <envmap_fragment>',reflection);
+    shader.uniforms.domeStrength=skyLightingStrength;
+    shader.fragmentShader=shader.fragmentShader
+     .replace('#include <common>',`#include <common>
+      #include <cube_uv_reflection_fragment>
+      uniform float domeStrength;`)
+     .replace('#include <lights_fragment_end>',`
+      vec3 domeNormal = inverseTransformDirection(geometryNormal, viewMatrix);
+      irradiance += PI * textureCubeUV(envMap, envMapRotation * domeNormal, 1.0).rgb * domeStrength;
+      #include <lights_fragment_end>`)
+     .replace('#include <envmap_fragment>',source.isMeshPhongMaterial?`
+      vec3 reflected = inverseTransformDirection(reflect(-geometryViewDir, geometryNormal), viewMatrix);
+      vec3 domeReflection = textureCubeUV(envMap, envMapRotation * reflected, 0.0).rgb;
+      outgoingLight += domeReflection * specular * specularStrength * reflectivity * domeStrength;`:'');
    };
-   material.customProgramCacheKey=()=>source.customProgramCacheKey()+'|luma-dome-phong-v1';
+   material.customProgramCacheKey=()=>source.customProgramCacheKey()+'|dollview-dome-v2';
   }else{
    // Explicit PBR environment maps otherwise override the dome and its strength.
    material.envMap=null;
   }
   skyMaterials.set(source,material);
  }
- if(source.isMeshPhongMaterial){if(material.envMap!==skyReflectionTexture){material.envMap=skyReflectionTexture;material.needsUpdate=true;}material.envMapRotation.copy(scene.environmentRotation);}
+ if(legacy){
+  if(material.envMap!==scene.environment){material.envMap=scene.environment;material.needsUpdate=true;}
+  material.envMapRotation.copy(scene.environmentRotation);
+ }
  return material;
 }
 function applySky(){
  if(!ambient)return;
  environment.configure({enabled:skyDome,intensity:skyStrength});
- const active=environment.apply(studioEnvironment.texture);skyReflectionTexture=environment.texture;
- skyReflectionStrength.value=skyStrength;
+ const active=environment.apply(studioEnvironment.texture);
+ skyLightingStrength.value=skyStrength;
+ effects?.updateShadowLight();
  ambient.intensity=active ? .25*skyStrength : (effects?.settings.shadows ? .6 : 2);
  ambient.color.set(0xffffff);ambient.groundColor.set(0x505768);
  keyLight.visible=!active&&!effects?.settings.shadows;if(model)materials();else draw();
@@ -187,8 +197,9 @@ window.updateModelLight=(id,color,strength)=>{
  item.strength=Math.max(0,Math.min(100,strength));item.light.color.set(color);item.light.intensity=radius*radius*6*item.strength;item.handle.material.color.set(color);draw();
 };
 window.removeModelLight=id=>{const item=userLights[id];if(!item?.active)return;if(selectedLight===id)selectLight(-1);scene.remove(item.light);overlayScene.remove(item.handle);item.handle.material.map.dispose();item.handle.material.dispose();item.active=false;draw();};
-window.setModelDetails=(text,topPixels,visible)=>{
+window.setModelDetails=(text,topPixels,visible,playbackInset=0)=>{
  const panel=document.getElementById('details');panel.textContent=text;panel.style.top=Math.ceil(topPixels/devicePixelRatio)+'px';detailsVisible=visible;panel.hidden=!visible;
+ document.documentElement.style.setProperty('--playback-inset',Math.ceil(playbackInset/devicePixelRatio)+'px');
 };
 function selectLight(id){
  if(transform.dragging){transform.reset();transform.pointerUp({button:0});}
@@ -226,7 +237,7 @@ manager.onError=url=>failed.add(url);
 manager.onLoad=()=>{if(ready){draw();setTimeout(capture,100);}};
 try{
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x202328);renderer.toneMapping=THREE.ACESFilmicToneMapping;document.body.appendChild(renderer.domElement);
- renderer.domElement.addEventListener('webglcontextrestored',()=>{viewportWidth=0;draw();});
+ renderer.domElement.addEventListener('webglcontextrestored',()=>{viewportWidth=0;playback?.resetClock();draw();});
  scene=new THREE.Scene();scene.background=new THREE.Color(0x202328);overlayScene=new THREE.Scene();camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.01,10000);
  environment=createEnvironment(renderer,scene,()=>{skyDome=environment.settings.enabled;skyStrength=environment.settings.intensity;applySky();},value=>{controls.enabled=!value&&!transform?.dragging;});
  transform=new TransformControls(camera,renderer.domElement);transform.setMode('translate');transform.setSpace('world');transform.setSize(.85);transform.enabled=false;overlayScene.add(transform.getHelper());
@@ -235,15 +246,16 @@ try{
  controls=new OrbitControls(camera,renderer.domElement);controls.addEventListener('change',draw);controls.enableDamping=false;setupLightPicking();
  const pmrem=new THREE.PMREMGenerator(renderer);const room=new RoomEnvironment();studioEnvironment=pmrem.fromScene(room);scene.environment=studioEnvironment.texture;room.dispose();pmrem.dispose();ambient=new THREE.HemisphereLight(0xffffff,0x505768,2);scene.add(ambient);keyLight=new THREE.DirectionalLight(0xffffff,2.5);keyLight.position.set(4,8,5);scene.add(keyLight);
  effects=createEffects(renderer,scene,camera,()=>{if(model)applySky();else draw();},environment);
- window.addEventListener('pagehide',()=>{effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
- window.loadModel=async(url,extension)=>{
+ window.addEventListener('pagehide',()=>{playback?.dispose();effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
+ window.loadModel=async(url,extension,english=false)=>{
   try{
    if(model)throw new Error('Open a new viewer to load another model.');
+   let clips=[];
    if(extension==='glb'||extension==='gltf'){
     const draco=new DRACOLoader(manager).setDecoderPath('./vendor/addons/libs/draco/gltf/');draco.setWorkerLimit(2);
     const ktx=new KTX2Loader(manager).setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
     const loader=new GLTFLoader(manager).setDRACOLoader(draco).setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder);
-    try{model=(await loader.loadAsync(url)).scene;}finally{draco.dispose();ktx.dispose();}
+    try{const gltf=await loader.loadAsync(url);model=gltf.scene;clips=gltf.animations;}finally{draco.dispose();ktx.dispose();}
    }else if(extension==='obj'){
     const response=await fetch(url);if(!response.ok)throw new Error('Model file could not be read.');const text=await response.text();const obj=new OBJLoader(manager);const refs=[...text.matchAll(/^\s*mtllib\s+(.+)$/gm)].map(m=>m[1].trim());
     // MTL paths are relative to the OBJ; textures are relative to their MTL file.
@@ -252,17 +264,19 @@ try{
     if(creator)obj.setMaterials(creator);model=obj.parse(text);
    }else if(extension==='fbx'){
     model=await new FBXLoader(manager).loadAsync(url);
+    clips=model.animations;
    }else if(extension==='stl'){
     const geometry=await new STLLoader(manager).loadAsync(url);model=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0xb4bdc9,roughness:.65,vertexColors:!!geometry.attributes.color}));
    }else throw new Error('Unsupported 3D format.');
    let meshes=0,triangles=0;const mats=new Set();model.updateMatrixWorld(true);model.traverse(o=>{if(!o.isMesh)return;meshes++;const geometry=o.geometry;if(!geometry.attributes.normal)geometry.computeVertexNormals();triangles+=Math.floor((geometry.index?geometry.index.count:geometry.attributes.position.count)/3)*(o.isInstancedMesh?o.count:1);originals.set(o,o.material);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>mats.add(m));});
    if(!meshes)throw new Error('No mesh found in this file.');
+   playback=createPlayback(model,clips,english,draw);
    const box=new THREE.Box3().setFromObject(model,true);const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());radius=size.length()/2;
    if(!Number.isFinite(radius)||radius<=0)throw new Error('Model bounds are empty or invalid.');
    const wrapper=new THREE.Group();wrapper.add(model);wrapper.position.copy(center).negate();scene.add(wrapper);
    grid=new THREE.GridHelper(radius*3,20,0x697586,0x38414b);grid.position.y=-size.y/2-radius*.002;scene.add(grid);axes=new THREE.AxesHelper(radius*.6);axes.position.y=grid.position.y+.001*radius;scene.add(axes);
    scene.updateMatrixWorld(true);effects.attach(model,radius);
-   ready=true;window.modelStats={meshes,triangles,materials:mats.size,size:size.toArray()};fit();message.textContent=failed.size?'Some local material/texture files could not be loaded.':'';
+   ready=true;window.modelStats={meshes,triangles,materials:mats.size,size:size.toArray()};applySky();fit();message.textContent=failed.size?'Some local material/texture files could not be loaded.':'';
    post('loaded:'+JSON.stringify(window.modelStats));setTimeout(capture,200);
   }catch(e){error(e);}
  };

@@ -20,7 +20,7 @@ foreach ($name in @('WindowsBase','PresentationCore','PresentationFramework','Wi
 }
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.Core.dll'
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.WinForms.dll'
-$names = @('LumaView','ExtendedDecoder','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','Shortcuts','AppSettings','FileAssociations','ModelViewer','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
+$names = @('LumaView','ExtendedDecoder','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','Shortcuts','AppSettings','FileAssociations','ModelViewer','ModelConversion','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
 $arguments = @('/nologo',"/target:$Target",'/platform:x64','/optimize+',"/out:$outputRoot\DollView.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico")
 $arguments += $references | ForEach-Object { "/reference:$_" }
 $arguments += $names | ForEach-Object { Join-Path $PSScriptRoot "$_.cs" }

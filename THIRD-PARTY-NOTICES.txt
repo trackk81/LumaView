@@ -46,6 +46,10 @@ FFmpeg N-128766-gcd4e96eb3 is included in this build.
 License: licenses/mpv-LICENSE.GPL.txt and licenses/mpv-Copyright.txt.
 Exact upstream/source/build information: video-runtime/SOURCE.json.
 
+DollView.Convert uses Assimp 6.0.6, Draco, zlib, RapidJSON and stb.
+Converter licenses and attributions are in licenses/model-converter.txt.
+The source and pinned build recipe are in model-converter in the source repository.
+
 The included FFmpeg build enables GPL/version3 components; see
 licenses/ffmpeg-COPYING.GPLv3.txt and the pinned upstream build recipe in SOURCE.json.
 FFmpeg source revision: https://github.com/FFmpeg/FFmpeg/tree/cd4e96eb3

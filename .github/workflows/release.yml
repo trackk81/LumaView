@@ -47,6 +47,9 @@ jobs:
       - name: Verify portable archive
         shell: pwsh
         run: .\scripts\test-portable.ps1
+      - name: Verify 3D format conversion
+        shell: powershell
+        run: .\scripts\test-model-conversion.ps1 -AppDirectory ((Get-Content dist\latest-payload.txt -Raw).Trim())
       - name: Verify legacy and DollView ZIP updates
         shell: pwsh
         run: .\scripts\test-packaged-update.ps1

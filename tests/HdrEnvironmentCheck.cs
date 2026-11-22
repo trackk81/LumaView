@@ -6,11 +6,51 @@ static double[] Numbers(object a){return ((System.Collections.IEnumerable)a).Cas
 static Bitmap Capture(WebView2 w){Pump(180);using(var stream=new MemoryStream()){var task=w.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png,stream);while(!task.IsCompleted)Pump();task.GetAwaiter().GetResult();stream.Position=0;using(var b=new Bitmap(stream))return new Bitmap(b);}}
 static void WaitHdr(WebView2 w,bool success=true){var timer=Stopwatch.StartNew();while(JS(w,"window.modelState().environment.loading")=="true"&&timer.ElapsedMilliseconds<15000)Pump(30);if(JS(w,"window.modelState().environment.loading")=="true")throw new Exception("HDR load timeout");if(success&&JS(w,"window.modelState().environment.error")!="\"\"")throw new Exception(JS(w,"window.modelState().environment.error"));}
 static void CheckDifferent(Bitmap a,Bitmap b,string name){int changed=0;for(int y=170;y<a.Height-70;y+=3)for(int x=100;x<a.Width-100;x+=3){var c=a.GetPixel(x,y);var d=b.GetPixel(x,y);if(Math.Abs(c.R-d.R)+Math.Abs(c.G-d.G)+Math.Abs(c.B-d.B)>10)changed++;}Console.WriteLine(name+": "+changed+" samples changed");if(changed<30)throw new Exception("No visible change: "+name);}
-[STAThread]static int Main(string[] args){try{Application.EnableVisualStyles();var a=Assembly.LoadFrom(@"D:\chatGPT\LumaView\LumaView.exe");using(var p=(Form)Activator.CreateInstance(a.GetType("LumaView.ModelViewer"),new object[]{args.Length>0?args[0]:@"D:\chatGPT\LumaView\dependencies\viewport-tests\ao-corner.gltf",new Rectangle(0,0,1100,760)})){
+static void SelectMap(WebView2 web,string map){
+ JS(web,"document.querySelector('[data-map="+map+"]').click()");WaitHdr(web);
+ if(JS(web,"window.modelState().environment.map")!=json.Serialize(map))throw new Exception("Wrong map selected");
+}
+static void CheckModelPixels(Bitmap first,Bitmap second,string label){
+ int changed=0,samples=0;
+ for(int y=first.Height/2-48;y<first.Height/2+48;y+=2)
+  for(int x=first.Width/2-48;x<first.Width/2+48;x+=2){
+   var a=first.GetPixel(x,y);var b=second.GetPixel(x,y);samples++;
+   if(Math.Abs(a.R-b.R)+Math.Abs(a.G-b.G)+Math.Abs(a.B-b.B)>12)changed++;
+  }
+ Console.WriteLine(label+" changed "+changed+" / "+samples+" model samples");
+ if(changed<samples/8)throw new Exception("HDR did not change model lighting: "+label);
+}
+static void CheckLighting(WebView2 web){
+ JS(web,"window.modelCommand('front');if(window.modelState().grid)window.modelCommand('grid')");
+ foreach(string preset in new[]{"bloom","basic"}){
+  JS(web,"window.setRenderPreset('"+preset+"');window.setEnvironment({background:false,rotation:59,intensity:1})");
+  SelectMap(web,"venice_sunset");
+  using(var sunset=Capture(web)){
+   SelectMap(web,"studio_small_09");
+   using(var studio=Capture(web))CheckModelPixels(sunset,studio,preset+" map selection");
+  }
+  using(var studio=Capture(web)){
+   JS(web,"window.setEnvironment({rotation:239})");
+   using(var rotated=Capture(web))CheckModelPixels(studio,rotated,preset+" rotation");
+  }
+  JS(web,"window.setEnvironment({intensity:0})");
+  using(var dark=Capture(web)){
+   var center=dark.GetPixel(dark.Width/2,dark.Height/2);
+   if(Math.Max(center.R,Math.Max(center.G,center.B))>6)throw new Exception("Dome at zero still lights the test surface in "+preset+": "+center);
+  }
+ }
+}
+[STAThread]static int Main(string[] args){try{Application.EnableVisualStyles();var a=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));
+bool lighting=args.Contains("--lighting");
+var modelPath=args.FirstOrDefault(arg=>arg!="--lighting")??(lighting?@"tests\fixtures\diffuse.obj":@"dependencies\viewport-tests\ao-corner.gltf");
+using(var p=(Form)Activator.CreateInstance(a.GetType("LumaView.ModelViewer"),new object[]{Path.GetFullPath(modelPath),new Rectangle(0,0,1100,760)})){
 p.Show();var clock=Stopwatch.StartNew();while(!(bool)Get(p,"ready")&&clock.ElapsedMilliseconds<20000)Pump();if(!(bool)Get(p,"ready"))throw new Exception(((Label)Get(p,"status")).Text);var w=(WebView2)Get(p,"web");
 
 
 JS(w,"window.fxErrors=[];const log=console.error;console.error=(...a)=>{window.fxErrors.push(a.map(String).join(' '));log(...a);};");
+if(lighting){
+ CheckLighting(w);if(JS(w,"window.fxErrors.length")!="0")throw new Exception(JS(w,"window.fxErrors"));p.Close();return 0;
+}
 var controls=(ToolStrip)Get(p,"tools");if(controls.Items.Cast<ToolStripItem>().Any(x=>x.Text=="스카이돔"||x.Text=="돔 밝기"))throw new Exception("Legacy toolbar controls still present");
 foreach(string map in new[]{"studio_small_09","studio_small_03","venice_sunset","forest_slope"}){
  JS(w,"window.selectEnvironment('"+map+"')");WaitHdr(w);

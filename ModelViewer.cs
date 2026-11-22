@@ -11,7 +11,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace LumaView {
 static class ModelFiles {
-    public static bool Supported(string path){return new[]{".obj",".glb",".gltf",".stl",".fbx"}.Contains(Path.GetExtension(path).ToLowerInvariant());}
+    public static bool Supported(string path){return ModelConversion.Formats.Contains(Path.GetExtension(path).TrimStart('.').ToLowerInvariant());}
     public static string PreviewPath(string path){
         var file=new FileInfo(path);string stamp=Path.GetFullPath(path)+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks;
         using(var hash=SHA256.Create()){return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LumaView","model-thumbnails",BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(stamp))).Replace("-","")+".png");}
@@ -57,7 +57,7 @@ partial class Viewer {
         fileList.Focus();UpdateBrowserInfo();
     }
 }
-sealed class ModelViewer:MediaViewerForm {
+sealed partial class ModelViewer:MediaViewerForm {
     readonly WebView2 web=new WebView2{Dock=DockStyle.Fill,DefaultBackgroundColor=Color.FromArgb(32,35,40)};
     readonly ToolStrip tools=new ViewerToolStrip{GripStyle=ToolStripGripStyle.Hidden,Padding=new Padding(10,8,10,8)};
     readonly Label status=new Label{Dock=DockStyle.Fill,ForeColor=Color.White,TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(12,4,12,4)};
@@ -76,7 +76,7 @@ sealed class ModelViewer:MediaViewerForm {
     string statistics="";
     public ModelViewer(string file,Rectangle bounds){
         path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
-        Add(Ui.T("목록으로 (Esc)"),delegate{Close();});Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
+        Add(Ui.T("목록으로 (Esc)"),delegate{Close();});AddConversionMenu();Add(Ui.T("화면 맞춤"),delegate{Command("iso");});Add(Ui.T("정면"),delegate{Command("front");});Add(Ui.T("측면"),delegate{Command("side");});Add(Ui.T("윗면"),delegate{Command("top");});
         modeButton=Add(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
         modeButton.ToolTipText=Shortcuts.Format("fullscreen");
         var effectsButton=Add(Ui.Language=="en"?"Rendering effects":"렌더링 효과",delegate{ToggleRenderEffects();});effectsButton.Enabled=false;effectsButton.Tag="model";
@@ -128,7 +128,8 @@ sealed class ModelViewer:MediaViewerForm {
         string text=Path.GetFileName(path)+"\n"+statistics;
         try{var info=new FileInfo(path);text+="\n"+Ui.T("파일 크기: ")+(info.Length/1048576.0).ToString("N2")+" MB\n"+Ui.T("수정한 날짜: ")+info.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");}catch(IOException){}
         int top=fullscreen?32+title.Height+tools.Height+12:12;
-        try{await web.CoreWebView2.ExecuteScriptAsync("window.setModelDetails("+json.Serialize(text)+","+top+","+(detailsButton.Checked?"true":"false")+")");}catch(Exception ex){if(!closing)status.Text=ex.Message;}
+        int bottom=fullscreen?FullscreenChrome.FooterHeight:Math.Max(0,web.Bottom-status.Parent.Top);
+        try{await web.CoreWebView2.ExecuteScriptAsync("window.setModelDetails("+json.Serialize(text)+","+top+","+(detailsButton.Checked?"true":"false")+","+bottom+")");}catch(Exception ex){if(!closing)status.Text=ex.Message;}
     }
     async void ApplyLight(int id,Color color,decimal strength){
         if(closing)return;
@@ -180,7 +181,7 @@ sealed class ModelViewer:MediaViewerForm {
                 };
                 await web.CoreWebView2.ExecuteScriptAsync("window.setShortcuts&&window.setShortcuts("+json.Serialize(map)+")");
                 string url="https://model.lumaview.invalid/"+Uri.EscapeDataString(Path.GetFileName(path));
-                await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+")");
+                await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+","+(Ui.Language=="en"?"true":"false")+")");
             }else if(message=="exit"){EscapeView();}
             else if(message=="toggleFullscreen"){ToggleFullscreen();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}

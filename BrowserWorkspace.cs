@@ -271,7 +271,7 @@ partial class Viewer {
         try{
             var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.Open(path);else{a.Files=files;a.Select(index);}return a;}catch{a.Dispose();throw;}});
             if(IsDisposed){next.Dispose();return;}
-            canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;next.Dispose();Loaded();
+            canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;next.Dispose();detailsFile=null;Loaded();
             if(enterAfterLoad && !full)EnterImageView();
             if(fullscreenAfterLoad && full)SetImageFullscreen(true);
             if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}

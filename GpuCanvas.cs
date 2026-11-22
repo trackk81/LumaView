@@ -79,6 +79,8 @@ sealed class GpuCanvas : IDisposable {
     readonly List<Tile> tiles=new List<Tile>();
     IntPtr factory,target;
     IntPtr backgroundBrush;
+    IntPtr detailsTexture;
+    Bitmap detailsSource;
     int backgroundCell;
     Color backgroundOne,backgroundTwo;
     Size size;
@@ -100,7 +102,8 @@ sealed class GpuCanvas : IDisposable {
         var iid=new Guid("06152247-6f50-465a-9245-118bfd3b6007");
         Check(D2D1CreateFactory(0,ref iid,IntPtr.Zero,out factory));
         var settings=new TargetProperties{Type=2,DpiX=96,DpiY=96}; // Hardware only.
-        var properties=new WindowProperties{Window=window,Size=new SizeU(viewport.Width,viewport.Height)};
+        const int presentImmediately=2;
+        var properties=new WindowProperties{Window=window,Size=new SizeU(viewport.Width,viewport.Height),Options=presentImmediately};
         Check(Method<CreateWindowTarget>(factory,14)(factory,ref settings,ref properties,out target));
         size=viewport;
         tileSize=(int)Math.Min(2048,Method<MaximumBitmapSize>(target,55)(target))-2;
@@ -166,8 +169,20 @@ sealed class GpuCanvas : IDisposable {
     static RectangleF Project(Rectangle rectangle,RectangleF bounds,float scale){
         return new RectangleF(bounds.X+rectangle.X*scale,bounds.Y+rectangle.Y*scale,rectangle.Width*scale,rectangle.Height*scale);
     }
+    void PrepareDetails(Bitmap layer){
+        if(ReferenceEquals(detailsSource,layer))return;
+        Release(ref detailsTexture);
+        detailsSource=null;
+        if(layer==null)return;
+        var data=layer.LockBits(new Rectangle(Point.Empty,layer.Size),ImageLockMode.ReadOnly,PixelFormat.Format32bppPArgb);
+        try{
+            var props=new BitmapProperties{Format=87,Alpha=1,DpiX=96,DpiY=96};
+            Check(createBitmap(target,new SizeU(layer.Width,layer.Height),data.Scan0,(uint)data.Stride,ref props,out detailsTexture));
+        }finally{layer.UnlockBits(data);}
+        detailsSource=layer;
+    }
     public bool Render(IntPtr window,Size viewport,Bitmap image,RectangleF bounds,float scale,Color background,
-        bool opaque,int checkerSize,Color first,Color second){
+        bool opaque,int checkerSize,Color first,Color second,Bitmap details,Point detailsLocation){
         if(target==IntPtr.Zero)Open(window,viewport);
         if(viewport!=size){
             var dimensions=new SizeU(viewport.Width,viewport.Height);
@@ -176,6 +191,7 @@ sealed class GpuCanvas : IDisposable {
         }
         if(!ReferenceEquals(source,image))Upload(image,opaque);
         if(!opaque)PrepareBackground(checkerSize,first,second);
+        PrepareDetails(details);
         var screen=new RectangleF(PointF.Empty,viewport);
         begin(target);
         var color=new Rgba(background);
@@ -193,6 +209,10 @@ sealed class GpuCanvas : IDisposable {
             draw(target,tile.Texture,ref destination,1,scale>=4?0:1,IntPtr.Zero);
             pop(target);
         }
+        if(detailsTexture!=IntPtr.Zero){
+            var dest=new Rect(new Rectangle(detailsLocation,details.Size));
+            draw(target,detailsTexture,ref dest,1,0,IntPtr.Zero);
+        }
         int result=end(target,IntPtr.Zero,IntPtr.Zero);
         if(result==RecreateTarget){Dispose();return false;}
         Check(result);
@@ -200,6 +220,8 @@ sealed class GpuCanvas : IDisposable {
     }
     public void Dispose(){
         InvalidateImage();
+        Release(ref detailsTexture);
+        detailsSource=null;
         Release(ref backgroundBrush);
         Release(ref target);
         Release(ref factory);

@@ -8,9 +8,42 @@ const maps=[
  {id:'forest_slope',ko:'숲속 자연광',en:'Forest daylight'}
 ];
 
+// Use a bright patch in the upper hemisphere to aim the shadow-casting light.
+// Average each patch so a single hot pixel does not determine its direction.
+function panoramaKey({data,width,height,type}){
+ const columns=64,rows=16,samples=4;
+ const linear=type===THREE.HalfFloatType?THREE.DataUtils.fromHalfFloat:v=>v;
+ let brightest=0,total=0,area=0;
+ const direction=new THREE.Vector3(0,1,0),color=new THREE.Color(1,1,1);
+ for(let row=0;row<rows;row++){
+  const theta=(row+.5)*Math.PI/(2*rows),weight=Math.sin(theta);
+  for(let col=0;col<columns;col++){
+   let r=0,g=0,b=0;
+   for(let j=0;j<samples;j++){
+    const y=Math.floor((row+(j+.5)/samples)*height/(2*rows));
+    for(let i=0;i<samples;i++){
+     const x=Math.floor((col+(i+.5)/samples)*width/columns),offset=4*(y*width+x);
+     r+=linear(data[offset]);g+=linear(data[offset+1]);b+=linear(data[offset+2]);
+    }
+   }
+   const luminance=(.2126*r+.7152*g+.0722*b)/(samples*samples);
+   total+=luminance*weight;area+=weight;
+   if(luminance>brightest){
+    brightest=luminance;
+    const phi=((col+.5)/columns-.5)*2*Math.PI;
+    direction.set(weight*Math.cos(phi),Math.cos(theta),weight*Math.sin(phi));
+    color.setRGB(r,g,b).multiplyScalar(1/Math.max(r,g,b));
+   }
+  }
+ }
+ const mean=total/area;
+ const contrast=brightest>0?Math.max(0,1-mean/brightest):0;
+ return {direction,color,intensity:Math.min(1.25,Math.PI*mean)*contrast};
+}
+
 export function createEnvironment(renderer,scene,changed,dragging){
  const settings={enabled:false,map:'studio_small_09',intensity:1,rotation:0,background:false,blur:.15,backgroundIntensity:1};
- let texture=null,target=null,token=0,loading=false,disposed=false,error='',customName='',root=null,english=false;
+ let texture=null,target=null,shadowKey=null,token=0,loading=false,disposed=false,error='',customName='',root=null,english=false;
  const generator=new THREE.PMREMGenerator(renderer);generator.compileEquirectangularShader();
  const t=(ko,en)=>english?en:ko;
  function state(){return {...settings,loaded:!!texture,loading,error,customName,width:texture?.image.width??0,height:texture?.image.height??0};}
@@ -38,6 +71,7 @@ export function createEnvironment(renderer,scene,changed,dragging){
    next=new THREE.DataTexture(data.data,data.width,data.height,THREE.RGBAFormat,data.type);
    next.colorSpace=THREE.LinearSRGBColorSpace;next.minFilter=next.magFilter=THREE.LinearFilter;next.generateMipmaps=false;next.flipY=true;next.mapping=THREE.EquirectangularReflectionMapping;next.needsUpdate=true;
    nextTarget=generator.fromEquirectangular(next);
+   shadowKey=panoramaKey(data);
    const previous=texture,previousTarget=target;texture=next;target=nextTarget;next=null;nextTarget=null;
    settings.map=id;customName=name;loading=false;notify();previousTarget?.dispose();previous?.dispose();return true;
   }catch(e){if(request===token&&!disposed){loading=false;error=e.message||String(e);notify();}return false;}
@@ -90,5 +124,5 @@ export function createEnvironment(renderer,scene,changed,dragging){
  canvas.addEventListener('pointermove',e=>{if(!gesture||gesture.id!==e.pointerId)return;set({rotation:((gesture.angle+(e.clientX-gesture.x)*.5)%360+360)%360});e.preventDefault();e.stopImmediatePropagation();},true);
  const end=e=>{if(!gesture||gesture.id!==e.pointerId)return;gesture=null;dragging(false);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();};
  canvas.addEventListener('pointerup',end,true);canvas.addEventListener('pointercancel',end,true);canvas.addEventListener('lostpointercapture',()=>{if(gesture){gesture=null;dragging(false);}});
- return {settings,state,configure,set,select,importFile,apply,mount,get texture(){return texture;},dispose(){disposed=true;token++;target?.dispose();texture?.dispose();generator.dispose();}};
+ return {settings,state,configure,set,select,importFile,apply,mount,get texture(){return texture;},get shadowKey(){return settings.enabled?shadowKey:null;},dispose(){disposed=true;token++;target?.dispose();texture?.dispose();generator.dispose();}};
 }

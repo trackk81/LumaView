@@ -11,6 +11,8 @@ Remove-Item -LiteralPath (Join-Path $payload 'AssemblyInfo.generated.cs')
 $files = @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','README.md','THIRD-PARTY-NOTICES.txt','VERSION')
 foreach ($name in $files) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $payload }
 foreach ($name in @('assets','codecs','licenses')) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $payload -Recurse }
+$converterTarget=New-Item -ItemType Directory -Path (Join-Path $payload 'model-converter')
+Copy-Item -LiteralPath (Join-Path $root 'model-converter\DollView.Convert.exe') -Destination $converterTarget.FullName
 $videoTarget=Join-Path $payload 'video-runtime'
 New-Item -ItemType Directory -Force -Path (Join-Path $videoTarget 'mpv') | Out-Null
 foreach ($name in @('mpv.exe','d3dcompiler_43.dll','SOURCE.json','mpv\fonts.conf')) { Copy-Item -LiteralPath (Join-Path $root ('video-runtime\'+$name)) -Destination (Join-Path $videoTarget $name) }

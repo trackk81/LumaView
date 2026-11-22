@@ -1,0 +1,43 @@
+diff --git a/code/AssetLib/FBX/FBXConverter.cpp b/code/AssetLib/FBX/FBXConverter.cpp
+index 89cd450..a42bf73 100644
+--- a/code/AssetLib/FBX/FBXConverter.cpp
++++ b/code/AssetLib/FBX/FBXConverter.cpp
+@@ -107,7 +107,12 @@ static void correctRootTransform(const aiScene *scene) {
+             scene->mMetaData->Get<int32_t>(MetadataIndex, CoordAxisSign);
+         }
+         if (strcmp(scene->mMetaData->mKeys[MetadataIndex].C_Str(), "UnitScaleFactor") == 0) {
+-            scene->mMetaData->Get<double>(MetadataIndex, UnitScaleFactor);
++            float scale;
++            if (scene->mMetaData->Get<float>(MetadataIndex, scale)) {
++                UnitScaleFactor = scale;
++            } else {
++                scene->mMetaData->Get<double>(MetadataIndex, UnitScaleFactor);
++            }
+         }
+     }
+ 
+diff --git a/code/AssetLib/FBX/FBXExporter.cpp b/code/AssetLib/FBX/FBXExporter.cpp
+index 353140e..906b312 100644
+--- a/code/AssetLib/FBX/FBXExporter.cpp
++++ b/code/AssetLib/FBX/FBXExporter.cpp
+@@ -2206,7 +2206,10 @@ void FBXExporter::WriteObjects () {
+                 aiMatrix4x4 bone_xform = mesh_xform * invOffsetMatrix; // bone global transform in bind pose
+ 
+                 sdnode.AddChild("Transform", b->mOffsetMatrix); // TransformLink * Transform = mesh_xform
+-            sdnode.AddChild("TransformLink", bone_xform);
++                sdnode.AddChild("TransformLink", bone_xform);
++                const aiNode* armature = bone_node;
++                while (armature && limbnodes.count(armature)) armature = armature->mParent;
++                sdnode.AddChild("TransformAssociateModel", get_world_transform(armature, mScene));
+             }
+ 
+             // done
+@@ -2504,7 +2507,7 @@ void FBXExporter::WriteObjects () {
+ 
+             // scale
+             WriteAnimationCurveNode(outstream,
+-                ids[2], "S", S, "Lcl Scale",
++                ids[2], "S", S, "Lcl Scaling",
+                 layer_uid, node_uids[node]
+             );
+ 

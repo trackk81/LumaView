@@ -12,6 +12,7 @@ samples/
 *.log
 .vs/
 !codecs/magick.exe
+!model-converter/DollView.Convert.exe
 !installer/redist/MicrosoftEdgeWebview2Setup.exe
 
 

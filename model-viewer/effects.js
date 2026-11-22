@@ -90,10 +90,23 @@ export function createEffects(renderer,scene,camera,changed,environment){
   model=object;radius=size;const box=new THREE.Box3().setFromObject(model,true);
   ground=new THREE.Mesh(new THREE.PlaneGeometry(radius*12,radius*12),new THREE.ShadowMaterial({opacity:.32}));
   ground.rotation.x=-Math.PI/2;ground.position.y=box.min.y-radius*.003;ground.receiveShadow=true;ground.visible=false;scene.add(ground);
-  light=new THREE.DirectionalLight(0xfff3df,2.5);light.position.set(radius*2,radius*3,radius*2);light.castShadow=true;
+  light=new THREE.DirectionalLight();light.castShadow=true;
   light.shadow.mapSize.set(2048,2048);Object.assign(light.shadow.camera,{left:-radius*1.5,right:radius*1.5,top:radius*1.5,bottom:-radius*1.5,near:radius*.01,far:radius*10});
   light.shadow.camera.updateProjectionMatrix();light.shadow.normalBias=radius*.002;light.shadow.bias=-.0001;light.visible=false;scene.add(light);
   model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+ }
+ function updateShadowLight(){
+  if(!light)return;
+  const key=environment.shadowKey;
+  if(key){
+   light.position.copy(key.direction).applyEuler(scene.environmentRotation).multiplyScalar(radius*Math.sqrt(17));
+   light.color.copy(key.color);
+   light.intensity=key.intensity*scene.environmentIntensity;
+  }else{
+   light.position.set(2,3,2).multiplyScalar(radius);
+   light.color.set(0xfff3df);light.intensity=2.5;
+  }
+  light.visible=settings.shadows&&light.intensity>0;
  }
  function material(source,textures){
   let pair=toonCache.get(source);if(!pair){pair=new Map();toonCache.set(source,pair);}
@@ -114,7 +127,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
   const ranges={bloomStrength:[0,3],bloomThreshold:[0,3],exposure:[.1,3],contrast:[.5,1.5],saturation:[0,2],outlineWidth:[1,4]};
   for(const [key,[min,max]] of Object.entries(ranges))if(Number.isFinite(value[key]))settings[key]=Math.max(min,Math.min(max,value[key]));
   renderer.toneMappingExposure=settings.exposure;renderer.shadowMap.enabled=settings.shadows;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-  if(ground)ground.visible=settings.shadows;if(light)light.visible=settings.shadows;
+  if(ground)ground.visible=settings.shadows;
   scene.traverse(o=>{if(o.isMesh){for(const m of Array.isArray(o.material)?o.material:[o.material])m.needsUpdate=true;}});
   sync();changed();
  }
@@ -163,5 +176,5 @@ export function createEffects(renderer,scene,camera,changed,environment){
  }
  function visibility(open){panel.hidden=!open;window.chrome.webview.postMessage('renderPanel:'+(open?'on':'off'));}
  ui();
- return {settings,attach,material,apply,render,resize,preset,toggle(en){if(english!==en)ui(en);visibility(panel.hidden);},dispose(){composer?.passes.forEach(p=>p.dispose?.());composer?.dispose();gradient.dispose();toonCache.forEach(pair=>pair.forEach(m=>m.dispose()));ground?.geometry.dispose();ground?.material.dispose();light?.shadow.dispose();edgeGeometry.forEach(geometry=>geometry.dispose());edgeMaterial.dispose();}};
+ return {settings,attach,material,apply,render,resize,preset,updateShadowLight,toggle(en){if(english!==en)ui(en);visibility(panel.hidden);},dispose(){composer?.passes.forEach(p=>p.dispose?.());composer?.dispose();gradient.dispose();toonCache.forEach(pair=>pair.forEach(m=>m.dispose()));ground?.geometry.dispose();ground?.material.dispose();light?.shadow.dispose();edgeGeometry.forEach(geometry=>geometry.dispose());edgeMaterial.dispose();}};
 }

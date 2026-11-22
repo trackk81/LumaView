@@ -38,7 +38,13 @@ static class ExtendedDecoder {
                 try{bmp=RunMagick(executable,path,"\""+coder+":-\" -delete 0 -layers merge -auto-orient -colorspace sRGB -depth 8 "+resize+"PNG32:-");}
                 catch{}
             }
-            if(bmp==null)bmp=RunMagick(executable,path,"\""+coder+":-[0]\" -auto-orient -colorspace sRGB -depth 8 "+resize+"PNG32:-");
+            if(bmp==null){
+                // These pixels travel through a local pipe. Avoid compressing a
+                // full-size preview only to decompress it again in GDI+.
+                string output=ext==".hdr"?"BMP3:-":ext==".exr"?"-define png:compression-level=0 -define png:compression-filter=0 PNG32:-":"PNG32:-";
+                bmp=RunMagick(executable,path,"\""+coder+":-[0]\" -auto-orient -colorspace sRGB -depth 8 "+resize+output);
+                if(ext==".hdr")Album.OpaqueImages.Add(bmp,new object());
+            }
             if(psdOrig.HasValue&&(psdOrig.Value.Width!=bmp.Width||psdOrig.Value.Height!=bmp.Height))Album.SetOriginalSize(bmp,psdOrig.Value);
             return bmp;
         }catch{
