@@ -52,13 +52,16 @@ static class ModelConversion {
                         (String.IsNullOrWhiteSpace(diagnostics)?"":"\n"+diagnostics.Trim()));
             }
             Publish(stage,main,destination,token);
-            const string skipped="Skipped texture: ";
-            return diagnostics.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries)
-                .Where(line=>line.StartsWith(skipped,StringComparison.Ordinal))
-                .Select(line=>line.Substring(skipped.Length)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            return SkippedTextures(diagnostics);
         }finally{
             try{Directory.Delete(stage,true);}catch(IOException){}catch(UnauthorizedAccessException){}
         }
+    }
+    internal static string[] SkippedTextures(string diagnostics){
+        const string skipped="Skipped texture: ";
+        return diagnostics.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries)
+            .Where(line=>line.StartsWith(skipped,StringComparison.Ordinal))
+            .Select(line=>line.Substring(skipped.Length)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
     static IOException Collision(string path){
         return new IOException(Say("같은 이름의 파일이나 폴더가 있습니다. 다른 이름으로 저장하세요.","A file or folder already has that name. Choose a new name.")+"\n"+path);

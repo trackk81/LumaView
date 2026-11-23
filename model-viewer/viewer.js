@@ -298,7 +298,7 @@ function setupLightPicking(){
 manager.setURLModifier(url=>{
  if(url.startsWith(fbxTexturePrefix))return 'https://textures.lumaview.invalid/?'+encodeURIComponent(url.slice(fbxTexturePrefix.length));
  const resolved=new URL(url,location.href);
- if(!['https://model.lumaview.invalid','https://viewer.lumaview.invalid'].includes(resolved.origin)&&!['data:','blob:'].includes(resolved.protocol))throw new Error('Only local model resources are supported.');
+ if(!['https://model.lumaview.invalid','https://recovered.lumaview.invalid','https://viewer.lumaview.invalid'].includes(resolved.origin)&&!['data:','blob:'].includes(resolved.protocol))throw new Error('Only local model resources are supported.');
  return url;
 });
 manager.onError=url=>{failed.add(url);showMissingFiles();};
@@ -315,9 +315,10 @@ try{
  const pmrem=new THREE.PMREMGenerator(renderer);const room=new RoomEnvironment();studioEnvironment=pmrem.fromScene(room);scene.environment=studioEnvironment.texture;room.dispose();pmrem.dispose();ambient=new THREE.HemisphereLight(0xffffff,0x505768,2);scene.add(ambient);keyLight=new THREE.DirectionalLight(0xffffff,2.5);keyLight.position.set(4,8,5);scene.add(keyLight);
  effects=createEffects(renderer,scene,camera,()=>{if(model)applySky();else draw();},environment);
  window.addEventListener('pagehide',()=>{playback?.dispose();materialPanel?.dispose();effects.dispose();environment.dispose();skyMaterials.forEach(m=>m.dispose());flatMaterials.forEach(m=>m.dispose());plain.forEach(m=>m.dispose());studioEnvironment.dispose();},{once:true});
- window.loadModel=async(url,extension,english=false)=>{
+ window.loadModel=async(url,extension,english=false,skippedTextures=[])=>{
   try{
    englishMessages=english;
+   failed.clear();for(const name of skippedTextures)failed.add(name);
    if(model)throw new Error('Open a new viewer to load another model.');
    let clips=[];
    if(extension==='glb'||extension==='gltf'){

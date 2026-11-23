@@ -1,8 +1,9 @@
-# DollView 0.2.36
+# DollView 0.2.37
 
-- 3D 모델에서 텍스처 파일이 일부 빠져 있어도 변환을 마칩니다. 사용할 수 있는 텍스처를 저장하고, 완료 창에 포함하지 못한 텍스처 이름을 표시합니다.
-- `Littlest Tokyo` FBX를 GLB로 변환해 확인했습니다. 원본에 없는 `LM_Final.tga`만 누락 목록에 표시되며, 제공된 텍스처 3장과 메시 54개, 애니메이션이 GLB에 들어갑니다.
+- 3D 뷰어와 포맷 변환에서 모델 폴더의 하위 폴더와 같은 패키지의 텍스처 폴더를 검색합니다. 경로나 확장자가 바뀐 이미지도 파일명과 원래 폴더 이름을 단서로 다시 연결합니다.
+- UV가 있는 재질에서 연결이 비어 있으면 재질명과 이미지 이름을 이용해 색상, 노멀, AO, 발광, 거칠기, 금속성 맵을 찾습니다. 색상 슬롯에 AO가 들어 있고 같은 세트에 색상 이미지가 있으면 각각의 슬롯에 연결합니다.
+- 새로 연결할 색상 맵의 파일명이 버전 번호(`v1`, `v2` 등)만 다르면 가장 높은 버전을 선택합니다. GLB와 glTF에서는 거칠기와 금속성 맵을 해당 형식의 채널에 맞춰 저장합니다.
 
-Windows x64용 설치 파일은 `DollView-Setup-0.2.36-x64.exe`, 휴대용은 `DollView-0.2.36-win-x64.zip`입니다. 기존 사용자는 DollView에서 **업데이트**를 누르면 됩니다.
+Windows x64용 설치 파일은 `DollView-Setup-0.2.37-x64.exe`, 휴대용은 `DollView-0.2.37-win-x64.zip`입니다. 기존 사용자는 DollView에서 **업데이트**를 누르면 됩니다.
 
-개인과 기업 모두 업무용으로 무료로 사용할 수 있습니다. [무료 사용 라이선스](https://github.com/trackk81/LumaView/blob/v0.2.36/LICENSE.txt) · [동봉한 코덱의 소스 및 빌드 자료](https://github.com/trackk81/LumaView/releases/tag/v0.2.30)
+개인과 기업 모두 업무용으로 무료로 사용할 수 있습니다. [무료 사용 라이선스](https://github.com/trackk81/LumaView/blob/v0.2.37/LICENSE.txt) · [동봉한 코덱의 소스 및 빌드 자료](https://github.com/trackk81/LumaView/releases/tag/v0.2.30)

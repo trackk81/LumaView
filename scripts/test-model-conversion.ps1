@@ -118,6 +118,33 @@ foreach($format in 'glb','fbx','obj'){
     if(!$doc.meshes.Count -or $doc.images.Count -or ($format -ne 'obj' -and $doc.animations.Count -ne 2)){throw "Incomplete $format after skipping a glTF texture"}
 }
 Write-Output 'PASS animated glTF with an absent image exports and reopens as GLB, FBX and OBJ'
+
+$setName='finish_'+[Guid]::NewGuid().ToString('N')
+$asset=New-Item -ItemType Directory (Join-Path $work 'autofind\source') -Force
+$maps=New-Item -ItemType Directory (Join-Path $work 'autofind\paint library\surfaces\cloth') -Force
+$fbx=Join-Path $asset.FullName 'untitled.fbx'
+$sourceText=Get-Content -LiteralPath (Join-Path $root 'tests\fixtures\external-texture.fbx') -Raw
+[IO.File]::WriteAllText($fbx,$sourceText.Replace('wing.tga',($setName+'_Mixed_AO.tga')).Replace('    C: "OP",4,3,"TransparentColor"',''))
+foreach($suffix in 'Mixed_AO','Base_Color_v1','Base_Color_v4','Normal_OpenGL','Roughness','Metallic','Emissive'){
+    [IO.File]::WriteAllBytes((Join-Path $maps.FullName ($setName+'_'+$suffix+'.png')),[Convert]::FromBase64String($png))
+}
+$output=Join-Path $work 'inferred.glb'
+if(@(Convert-Model $fbx $output).Count){throw 'Failed to resolve a relocated image by its stem.'}
+$mat=(Read-Glb $output).materials[0]
+if(!$mat.normalTexture -or !$mat.emissiveTexture -or !$mat.occlusionTexture -or !$mat.pbrMetallicRoughness.metallicRoughnessTexture -or
+   $mat.pbrMetallicRoughness.baseColorTexture.index -eq $mat.occlusionTexture.index){throw 'Incomplete inferred PBR bindings.'}
+$preview=Join-Path $work 'preview.glb'
+& (Join-Path $AppDirectory 'model-converter\DollView.Convert.exe') --texture-preview $fbx $preview
+if($LASTEXITCODE -ne 0 -or !(Read-Glb $preview).materials[0].normalTexture){throw 'Viewer preview failed to recover nested textures.'}
+$unnamed=Get-Content -LiteralPath (Join-Path $root 'tests\fixtures\opacity.gltf') -Raw | ConvertFrom-Json
+$unnamed.materials=@($unnamed.materials[0]);$unnamed.meshes[0].primitives=@($unnamed.meshes[0].primitives[0])
+$unnamed.materials[0].name=$setName
+$unnamed.materials[0].pbrMetallicRoughness.PSObject.Properties.Remove('baseColorTexture')
+$unnamed.PSObject.Properties.Remove('images');$unnamed.PSObject.Properties.Remove('textures')
+$gltf=Join-Path $asset.FullName 'no-references.gltf';[IO.File]::WriteAllText($gltf,($unnamed | ConvertTo-Json -Depth 32))
+$output=Join-Path $work 'no-references.glb'
+if(@(Convert-Model $gltf $output).Count -or !(Read-Glb $output).materials[0].pbrMetallicRoughness.baseColorTexture){throw 'Missing inference for a material without any image references.'}
+Write-Output 'PASS nested PBR sets for arbitrary model names, misplaced AO and materials with no image references'
 $collision=Join-Path $work 'existing.obj'
 $material=[IO.Path]::ChangeExtension($collision,'mtl')
 [IO.File]::WriteAllText($material,'existing material')

@@ -146,6 +146,9 @@ sealed partial class ModelViewer:MediaViewerForm {
     bool lightSelected,effectsPanelOpen,materialPanelOpen;
     readonly System.Collections.Generic.Dictionary<string,ToolStripButton> visualButtons=new System.Collections.Generic.Dictionary<string,ToolStripButton>();
     string statistics="";
+    readonly System.Threading.CancellationTokenSource texturePreviewCancel=new System.Threading.CancellationTokenSource();
+    readonly string texturePreview=Path.Combine(Path.GetTempPath(),"DollView-textures-"+Guid.NewGuid().ToString("N"),"preview.glb");
+    bool usingTexturePreview,texturePreviewAvailable;
     public ModelViewer(string file,Rectangle bounds){
         path=Path.GetFullPath(file);Text=AppUpdater.WindowTitle(Path.GetFileName(path)+" · 3D");BackColor=Color.FromArgb(32,35,40);Font=new Font("Malgun Gothic",9);FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;KeyPreview=true;
         Add(Ui.T("목록으로 (Esc)"),delegate{Close();});
@@ -165,7 +168,7 @@ sealed partial class ModelViewer:MediaViewerForm {
         ModernUi.TitleBar(this);
         HandleCreated+=delegate{ModernUi.TitleBar(this);};
         Shown+=delegate{Initialize();};
-        FormClosed+=delegate{closing=true;chrome.Dispose();web.Dispose();};
+        FormClosed+=delegate{closing=true;texturePreviewCancel.Cancel();chrome.Dispose();web.Dispose();DeleteTexturePreview();};
     }
     void ToggleFullscreen(){
         if(closing)return;
@@ -229,6 +232,11 @@ sealed partial class ModelViewer:MediaViewerForm {
             var core=web.CoreWebView2;core.Settings.AreDefaultContextMenusEnabled=false;core.Settings.AreDevToolsEnabled=false;core.Settings.IsStatusBarEnabled=false;core.Settings.IsZoomControlEnabled=false;
             core.SetVirtualHostNameToFolderMapping("viewer.lumaview.invalid",Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"model-viewer"),CoreWebView2HostResourceAccessKind.DenyCors);
             core.SetVirtualHostNameToFolderMapping("model.lumaview.invalid",Path.GetDirectoryName(path),CoreWebView2HostResourceAccessKind.Allow);
+            try{
+                Directory.CreateDirectory(Path.GetDirectoryName(texturePreview));
+                core.SetVirtualHostNameToFolderMapping("recovered.lumaview.invalid",Path.GetDirectoryName(texturePreview),CoreWebView2HostResourceAccessKind.Allow);
+                texturePreviewAvailable=true;
+            }catch(IOException){}catch(UnauthorizedAccessException){}
             core.NavigationStarting+=delegate(object s,CoreWebView2NavigationStartingEventArgs e){if(!e.Uri.StartsWith("https://viewer.lumaview.invalid/",StringComparison.OrdinalIgnoreCase))e.Cancel=true;};
             core.NewWindowRequested+=delegate(object s,CoreWebView2NewWindowRequestedEventArgs e){e.Handled=true;};
             core.PermissionRequested+=delegate(object s,CoreWebView2PermissionRequestedEventArgs e){e.State=CoreWebView2PermissionState.Deny;};
@@ -238,7 +246,7 @@ sealed partial class ModelViewer:MediaViewerForm {
                     if(uri.Host=="textures.lumaview.invalid"&&uri.AbsolutePath=="/"&&uri.Query.Length>1&&e.Request.Method=="GET"&&e.ResourceContext==CoreWebView2WebResourceContext.Image){
                         ServeFbxTexture(environment,e,Uri.UnescapeDataString(uri.Query.Substring(1)));return;
                     }
-                    if(uri.Host=="viewer.lumaview.invalid"||uri.Host=="model.lumaview.invalid")return;
+                    if(uri.Host=="viewer.lumaview.invalid"||uri.Host=="model.lumaview.invalid"||uri.Host=="recovered.lumaview.invalid")return;
                 }
                 if(e.Request.Uri.StartsWith("data:")||e.Request.Uri.StartsWith("blob:"))return;
                 e.Response=environment.CreateWebResourceResponse(new MemoryStream(),403,"Local resources only","");
@@ -247,6 +255,28 @@ sealed partial class ModelViewer:MediaViewerForm {
             core.NavigationCompleted+=delegate(object s,CoreWebView2NavigationCompletedEventArgs e){if(!e.IsSuccess&&!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+e.WebErrorStatus;};
             core.Navigate("https://viewer.lumaview.invalid/index.html");
         }catch(Exception ex){if(!closing)status.Text=Ui.T("3D 화면을 열 수 없습니다.")+" "+(String.IsNullOrEmpty(ComponentSetup.WebViewVersion())?ComponentSetup.Say("설정 → 구성 요소 → 다운로드 및 연결에서 WebView2를 설치한 뒤 모델을 다시 여세요.","Install WebView2 in Settings → Components → Download and connect, then reopen the model."):ex.Message);}
+    }
+    void DeleteTexturePreview(){
+        try{File.Delete(texturePreview);Directory.Delete(Path.GetDirectoryName(texturePreview));}catch(IOException){}catch(UnauthorizedAccessException){}
+    }
+    string[] PrepareTexturePreview(System.Threading.CancellationToken token){
+        if(!texturePreviewAvailable||token.IsCancellationRequested||Path.GetExtension(path).Equals(".stl",StringComparison.OrdinalIgnoreCase))return null;
+        var info=new System.Diagnostics.ProcessStartInfo(ModelFiles.ThumbnailRenderer,"--texture-preview "+UpdateFiles.Quote(path)+" "+UpdateFiles.Quote(texturePreview)){
+            UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=Path.GetDirectoryName(path),RedirectStandardError=true,StandardErrorEncoding=Encoding.UTF8
+        };
+        try{
+            using(var helper=System.Diagnostics.Process.Start(info))
+            using(token.Register(delegate{try{if(!helper.HasExited)helper.Kill();}catch(InvalidOperationException){}catch(System.ComponentModel.Win32Exception){}})){
+                string report=helper.StandardError.ReadToEnd();helper.WaitForExit();
+                return !token.IsCancellationRequested&&helper.ExitCode==0&&File.Exists(texturePreview)?ModelConversion.SkippedTextures(report):null;
+            }
+        }catch(IOException){return null;}catch(System.ComponentModel.Win32Exception){return null;}
+        finally{if(token.IsCancellationRequested)DeleteTexturePreview();}
+    }
+    async System.Threading.Tasks.Task LoadModel(string file,string[] skipped){
+        string url=(usingTexturePreview?"https://recovered.lumaview.invalid/":"https://model.lumaview.invalid/")+Uri.EscapeDataString(Path.GetFileName(file));
+        if(usingTexturePreview)url+="?id="+Path.GetFileName(Path.GetDirectoryName(texturePreview));
+        await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(file).Substring(1).ToLowerInvariant())+","+(Ui.Language=="en"?"true":"false")+","+json.Serialize(skipped??new string[0])+")");
     }
     async void ServeFbxTexture(CoreWebView2Environment environment,CoreWebView2WebResourceRequestedEventArgs request,string reference){
         using(var deferral=request.GetDeferral()){
@@ -283,8 +313,12 @@ sealed partial class ModelViewer:MediaViewerForm {
                     {"fullscreen",Shortcuts.ToJsDescriptor("fullscreen")}
                 };
                 await web.CoreWebView2.ExecuteScriptAsync("window.setShortcuts&&window.setShortcuts("+json.Serialize(map)+")");
-                string url="https://model.lumaview.invalid/"+Uri.EscapeDataString(Path.GetFileName(path));
-                await web.CoreWebView2.ExecuteScriptAsync("window.loadModel("+json.Serialize(url)+","+json.Serialize(Path.GetExtension(path).Substring(1).ToLowerInvariant())+","+(Ui.Language=="en"?"true":"false")+")");
+                status.Text=ComponentSetup.Say("텍스처 찾는 중…","Finding textures…");
+                var token=texturePreviewCancel.Token;
+                var skipped=await System.Threading.Tasks.Task.Run(()=>PrepareTexturePreview(token));
+                if(closing)return;
+                usingTexturePreview=skipped!=null;
+                await LoadModel(usingTexturePreview?texturePreview:path,skipped);
             }else if(message=="exit"){EscapeView();}
             else if(message=="toggleFullscreen"){ToggleFullscreen();}
             else if(message=="toggleDetails"){detailsButton.PerformClick();}
@@ -301,7 +335,10 @@ sealed partial class ModelViewer:MediaViewerForm {
                 status.Text=Ui.T("좌클릭 드래그: 회전 · 우클릭 드래그: 이동 · 휠: 확대/축소 · F: 화면 맞춤");
                 foreach(ToolStripItem item in tools.Items)if((string)item.Tag=="model")item.Enabled=true;
                 UpdateDetailsOverlay();web.Focus();
-            }else if(message.StartsWith("error:")){status.Text=Ui.T("모델 읽기 실패: ")+message.Substring(6);}
+            }else if(message.StartsWith("error:")){
+                if(usingTexturePreview&&!ready){usingTexturePreview=false;await LoadModel(path,null);}
+                else status.Text=Ui.T("모델 읽기 실패: ")+message.Substring(6);
+            }
             else if(message.StartsWith("thumbnail:")&&message.Length<1000000){
                 try{byte[] bytes=Convert.FromBase64String(message.Substring(10));using(var stream=new MemoryStream(bytes))using(var image=Image.FromStream(stream)){if(image.Width>512||image.Height>512)return;ModelFiles.StorePreview(path,bytes);}}catch(IOException){}catch(ArgumentException){}
             }

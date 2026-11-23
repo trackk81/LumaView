@@ -1,5 +1,6 @@
 #include <assimp/Importer.hpp>
 #include <assimp/Exporter.hpp>
+#include <assimp/DefaultIOSystem.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <filesystem>
@@ -9,13 +10,27 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include "texture-search.h"
 
 namespace fs = std::filesystem;
 
-std::unique_ptr<aiScene> prepareTextures(Assimp::Importer&,const fs::path&,const fs::path&,const std::string&,std::set<std::string>&);
+std::unique_ptr<aiScene> prepareTextures(Assimp::Importer&,const fs::path&,const fs::path&,const std::string&,std::set<std::string>&,const TextureSearch&,bool);
 int thumbnail(int argc,wchar_t** argv);
 
-static void convert(const fs::path& source,const fs::path& output) {
+class PreviewFiles final:public Assimp::IOSystem {
+    const TextureSearch& package;
+    Assimp::DefaultIOSystem disk;
+public:
+    explicit PreviewFiles(const TextureSearch& search):package(search){}
+    bool Exists(const char* p) const override{return package.allows(fs::u8path(p))&&disk.Exists(p);}
+    char getOsSeparator() const override{return disk.getOsSeparator();}
+    Assimp::IOStream* Open(const char* p,const char* mode="rb") override{
+        return mode[0]=='r'&&package.allows(fs::u8path(p))?disk.Open(p,mode):nullptr;
+    }
+    void Close(Assimp::IOStream* stream) override{disk.Close(stream);}
+};
+
+static bool convert(const fs::path& source,const fs::path& output,bool preview=false) {
     const auto ext=output.extension().string();
     std::string format;
     if(ext==".fbx")format="fbx";
@@ -25,15 +40,20 @@ static void convert(const fs::path& source,const fs::path& output) {
     else if(ext==".stl")format="stlb";
     else throw std::runtime_error("Unsupported output format.");
     if(fs::exists(output))throw std::runtime_error("Destination exists.");
+    std::unique_ptr<TextureSearch> textures;
+    if(format!="stlb")textures=std::make_unique<TextureSearch>(source);
+    if(preview&&(!textures||textures->empty()))return false;
     Assimp::Importer reader;
+    if(preview)reader.SetIOHandler(new PreviewFiles(*textures));
     const auto imported=reader.ReadFile(source.u8string(),aiProcess_Triangulate);
     if(!imported)
         throw std::runtime_error(reader.GetErrorString());
     const bool fbx=_wcsicmp(source.extension().c_str(),L".fbx")==0;
     if(!imported->HasMeshes()||!imported->mRootNode)throw std::runtime_error("The source contains no meshes.");
     std::set<std::string> skipped;
-    auto scene=format=="stlb"?std::unique_ptr<aiScene>(reader.GetOrphanedScene()):prepareTextures(reader,source,output,format,skipped);
-    if(fbx){
+    auto scene=textures?prepareTextures(reader,source,output,format,skipped,*textures,preview):std::unique_ptr<aiScene>(reader.GetOrphanedScene());
+    if(!scene)return false;
+    if(fbx&&!preview){
         // The FBX importer puts the original basis and cm/unit on the root.
         aiMatrix4x4 meters;aiMatrix4x4::Scaling(aiVector3D(.01f),meters);
         scene->mRootNode->mTransformation=meters*scene->mRootNode->mTransformation;
@@ -52,11 +72,13 @@ static void convert(const fs::path& source,const fs::path& output) {
         throw std::runtime_error(writer.GetErrorString());
     if(!fs::is_regular_file(output)||!fs::file_size(output))throw std::runtime_error("Empty conversion output.");
     for(const auto& name:skipped)std::cerr<<"Skipped texture: "<<name<<'\n';
+    return true;
 }
 
 int wmain(int argc,wchar_t** argv) {
     try{
         if(argc>=3&&(std::wstring(argv[1])==L"--thumbnail-stream"||std::wstring(argv[1])==L"--thumbnail-file"))return thumbnail(argc,argv);
+        if(argc==4&&std::wstring(argv[1])==L"--texture-preview")return convert(argv[2],argv[3],true)?0:3;
         if(argc!=3)return 2;
         convert(fs::path(argv[1]),fs::path(argv[2]));return 0;
     }

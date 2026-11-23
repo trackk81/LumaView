@@ -10,6 +10,7 @@
 #include <set>
 #include <stdexcept>
 #include <vector>
+#include "texture-search.h"
 #define STB_IMAGE_STATIC
 #define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
@@ -65,7 +66,7 @@ static fs::path exportedTexture(const fs::path& model,const fs::path& reference)
 struct TextureSlot {aiMaterial* material;aiTextureType type;unsigned slot;int index;std::string name;};
 
 // Retain authored filenames for the completion dialog before embedding replaces them with indices.
-static std::vector<TextureSlot> relinkTextures(const aiScene& scene,const fs::path& source,bool fbxToGltf) {
+static std::vector<TextureSlot> relinkTextures(const aiScene& scene,const fs::path& source,bool fbxToGltf,const TextureSearch& search,bool preview,bool& recovered) {
     std::vector<TextureSlot> slots;
     const auto model=fs::canonical(source);
     for(unsigned m=0;m<scene.mNumMaterials;m++){
@@ -86,12 +87,16 @@ static std::vector<TextureSlot> relinkTextures(const aiScene& scene,const fs::pa
             else{
                 auto path=fs::u8path(reference.C_Str());
                 std::error_code ec;
-                if(fs::is_regular_file(path.is_absolute()?path:model.parent_path()/path,ec))continue;
+                if((!preview||search.allows(path))&&fs::is_regular_file(model.parent_path()/path,ec))continue;
                 auto match=exportedTexture(model,path);
+                bool viewerAlreadyResolves=!match.empty()&&!_wcsicmp(source.extension().c_str(),L".fbx")&&
+                    (match.extension()==L".png"||match.extension()==L".jpg"||match.extension()==L".jpeg")&&match.parent_path().extension()!=L".fbm";
+                if(match.empty())match=search.find(path);
                 if(match.empty())continue;
                 auto filename=match.u8string();
                 if(filename.size()>=sizeof(replacement.data))continue;
                 replacement.Set(filename);
+                if(!viewerAlreadyResolves)recovered=true;
             }
             material->AddProperty(&replacement,AI_MATKEY_TEXTURE(type,prop->mIndex));
         }
@@ -101,7 +106,8 @@ static std::vector<TextureSlot> relinkTextures(const aiScene& scene,const fs::pa
            material->GetTexture(aiTextureType_OPACITY,0,&opacity)==AI_SUCCESS&&
            !_wcsicmp(fs::u8path(color.C_Str()).c_str(),fs::u8path(opacity.C_Str()).c_str())){
             std::error_code ec;
-            if(scene.GetEmbeddedTexture(color.C_Str())||fs::is_regular_file(model.parent_path()/fs::u8path(color.C_Str()),ec)){
+            auto path=fs::u8path(color.C_Str());
+            if(scene.GetEmbeddedTexture(color.C_Str())||((!preview||search.allows(path))&&fs::is_regular_file(model.parent_path()/path,ec))){
                 aiString blend("BLEND");
                 material->AddProperty(&blend,AI_MATKEY_GLTF_ALPHAMODE);
             }
@@ -114,6 +120,48 @@ static void appendBytes(void* context,void* data,int size) {
     auto& bytes=*static_cast<std::vector<unsigned char>*>(context);
     auto first=static_cast<unsigned char*>(data);
     bytes.insert(bytes.end(),first,first+size);
+}
+
+bool bindMetalRough(aiScene& scene,aiMaterial& mat,const fs::path& rough,const fs::path& metal){
+    struct Gray {
+        std::unique_ptr<unsigned char,decltype(&stbi_image_free)> pixels{nullptr,stbi_image_free};
+        int w=0,h=0;
+        bool load(const fs::path& file){
+            if(file.empty())return true;
+            std::ifstream stream(file,std::ios::binary|std::ios::ate);
+            auto length=stream.tellg();
+            if(length<=0||length>INT_MAX)return false;
+            std::vector<unsigned char> bytes(static_cast<size_t>(length));stream.seekg(0);
+            if(!stream.read(reinterpret_cast<char*>(bytes.data()),length))return false;
+            int channels=0;
+            pixels.reset(stbi_load_from_memory(bytes.data(),static_cast<int>(bytes.size()),&w,&h,&channels,1));
+            return pixels!=nullptr;
+        }
+        unsigned char at(int x,int y,int width,int height) const{
+            return pixels?pixels.get()[size_t(int64_t(y)*h/height)*w+int64_t(x)*w/width]:255;
+        }
+    } r,m;
+    if(!r.load(rough)||!m.load(metal))return false;
+    int w=std::max(r.w,m.w),h=std::max(r.h,m.h);
+    if(!w||!h||size_t(w)*h>size_t(INT_MAX)/4)return false;
+    std::vector<unsigned char> rgb(size_t(w)*h*3),encoded;
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+        auto pixel=&rgb[(size_t(y)*w+x)*3];
+        pixel[0]=255;pixel[1]=r.at(x,y,w,h);pixel[2]=m.at(x,y,w,h);
+    }
+    if(!stbi_write_png_to_func(appendBytes,&encoded,w,h,3,rgb.data(),0))return false;
+    auto tex=std::make_unique<aiTexture>();tex->mWidth=static_cast<unsigned>(encoded.size());std::strcpy(tex->achFormatHint,"png");
+    tex->mFilename.Set("metallic-roughness.png");
+    tex->pcData=new aiTexel[(encoded.size()+sizeof(aiTexel)-1)/sizeof(aiTexel)];std::memcpy(tex->pcData,encoded.data(),encoded.size());
+    auto list=std::make_unique<aiTexture*[]>(scene.mNumTextures+1);
+    if(scene.mNumTextures)std::copy_n(scene.mTextures,scene.mNumTextures,list.get());
+    aiString path("*"+std::to_string(scene.mNumTextures));list[scene.mNumTextures++]=tex.release();
+    delete[] scene.mTextures;scene.mTextures=list.release();
+    mat.AddProperty(&path,AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE_ROUGHNESS,0));
+    float one=1.f;
+    if(!metal.empty())mat.AddProperty(&one,1,AI_MATKEY_METALLIC_FACTOR);
+    if(!rough.empty())mat.AddProperty(&one,1,AI_MATKEY_ROUGHNESS_FACTOR);
+    return true;
 }
 
 static bool convertToPng(aiTexture& tex) {
@@ -155,17 +203,24 @@ static void removeSlot(aiMaterial& material,aiTextureType type,unsigned slot) {
     }
 }
 
-std::unique_ptr<aiScene> prepareTextures(Assimp::Importer& reader,const fs::path& source,const fs::path& output,const std::string& format,std::set<std::string>& skipped) {
+std::unique_ptr<aiScene> prepareTextures(Assimp::Importer& reader,const fs::path& source,const fs::path& output,const std::string& format,std::set<std::string>& skipped,const TextureSearch& search,bool preview) {
     const auto folder=output.stem().u8string()+".textures";
     const bool gltf=format=="glb2"||format=="gltf2";
-    auto slots=relinkTextures(*reader.GetScene(),source,gltf&&!_wcsicmp(source.extension().c_str(),L".fbx"));
+    // Assimp owns this mutable scene until GetOrphanedScene transfers ownership below.
+    bool recovered=search.bindMaterials(*const_cast<aiScene*>(reader.GetScene()),gltf,preview);
+    auto slots=relinkTextures(*reader.GetScene(),source,gltf&&!_wcsicmp(source.extension().c_str(),L".fbx"),search,preview,recovered);
+    if(preview&&!recovered)return {};
     if(!reader.ApplyPostProcessing(aiProcess_EmbedTextures))throw std::runtime_error(reader.GetErrorString());
     std::unique_ptr<aiScene> owned(reader.GetOrphanedScene());
     auto& scene=*owned;
+    std::vector<std::string> displayNames(scene.mNumTextures);
     for(auto& ref:slots){
         aiString path;
-        if(ref.material->GetTexture(ref.type,ref.slot,&path)==AI_SUCCESS)
+        if(ref.material->GetTexture(ref.type,ref.slot,&path)==AI_SUCCESS){
             ref.index=scene.GetEmbeddedTextureAndIndex(path.C_Str()).second;
+            if(gltf&&recovered&&ref.index>=0&&!ref.name.empty()&&ref.name.front()!='*')
+                displayNames[ref.index]=fs::u8path(ref.name).filename().u8string();
+        }
     }
     std::vector<int> indices(scene.mNumTextures,-1);
     unsigned kept=0;
@@ -181,7 +236,7 @@ std::unique_ptr<aiScene> prepareTextures(Assimp::Importer& reader,const fs::path
         if(ext.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")!=std::string::npos)continue;
         indices[i]=kept++;
         const auto filename="texture-"+std::to_string(i+1)+"."+(ext=="kx2"?"ktx2":ext);
-        tex.mFilename.Set(filename);
+        tex.mFilename.Set(displayNames[i].empty()?filename:displayNames[i]);
         if(format=="obj"){
             const auto dir=output.parent_path()/fs::u8path(folder);
             fs::create_directories(dir);
