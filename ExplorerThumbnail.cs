@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -12,72 +13,108 @@ using Microsoft.Win32;
 
 namespace LumaView {
 static class ExplorerThumbnail {
-    const string ClassId="{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}";
-    const string ClassKey=@"Software\Classes\CLSID\"+ClassId;
     const string Handler=@"\ShellEx\{E357FCCD-A995-4576-B01F-234630154E96}";
-    static readonly string[] Extensions={".exr",".psd",".hdr",".tga"};
     static string Library{get{return Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.Thumbnail.dll");}}
-    static string[] Slots(){
-        return Extensions.SelectMany(e=>new[]{e,@"SystemFileAssociations\"+e}).ToArray();
-    }
     static string SlotKey(string slot){return @"Software\Classes\"+slot+Handler;}
     static string Read(string key){
         using(var value=Registry.CurrentUser.OpenSubKey(key))return value==null?null:value.GetValue("") as string;
     }
     static bool Same(string left,string right){return String.Equals(left,right,StringComparison.OrdinalIgnoreCase);}
-    public static bool Enabled{get{return Same(Read(ClassKey+@"\InProcServer32"),Library)&&Slots().All(s=>Same(Read(SlotKey(s)),ClassId));}}
 
-    [DllImport("shell32.dll")] static extern void SHChangeNotify(uint eventId,uint flags,IntPtr first,IntPtr second);
-    public static void SetEnabled(bool enable){
-        using(var guard=new Mutex(false,@"Local\DollView.ExplorerThumbnailRegistration")){
-            try{if(!guard.WaitOne(TimeSpan.FromSeconds(10)))throw new IOException("DollView thumbnail registration is busy.");}
-            catch(AbandonedMutexException){}
-            try{
-                if(enable){
-                    if(!File.Exists(Library))throw new FileNotFoundException("DollView.Thumbnail.dll",Library);
-                    string former=Read(ClassKey+@"\InProcServer32");
-                    using(var server=Registry.CurrentUser.CreateSubKey(ClassKey+@"\InProcServer32")){
-                        server.SetValue("",Library);server.SetValue("ThreadingModel","Apartment");
+    // A single checkbox can update two COM classes. Restore the original values if
+    // either registration fails, including a provider owned by a different installation.
+    sealed class RegistryChanges {
+        readonly Stack<Action> undo=new Stack<Action>();
+        readonly HashSet<string> emptyKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public void Prune(string path){emptyKeys.Add(path);}
+        public void Write(string path,string name,object value,RegistryValueKind kind){
+            using(var key=value==null?Registry.CurrentUser.OpenSubKey(path,true):Registry.CurrentUser.CreateSubKey(path)){
+                if(key==null)return;
+                var old=key.GetValue(name,null,RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if(old==null&&value==null)return;
+                var oldKind=old==null?RegistryValueKind.Unknown:key.GetValueKind(name);
+                if(Object.Equals(old,value)&&oldKind==kind)return;
+                Prune(path);
+                if(value==null)key.DeleteValue(name,false);else key.SetValue(name,value,kind);
+                undo.Push(delegate{
+                    using(var restore=Registry.CurrentUser.CreateSubKey(path)){
+                        if(old==null)restore.DeleteValue(name,false);else restore.SetValue(name,old,oldKind);
                     }
-                    try{
-                        using(var previous=Registry.CurrentUser.CreateSubKey(ClassKey+@"\Previous")){
-                            foreach(string slot in Slots()){
-                                using(var key=Registry.CurrentUser.CreateSubKey(SlotKey(slot))){
-                                    object value=key.GetValue("",null,RegistryValueOptions.DoNotExpandEnvironmentNames);
-                                    if(Same(value as string,ClassId))continue;
-                                    string entry=slot.Replace('\\','/');
-                                    if(value==null)previous.DeleteValue(entry,false);
-                                    else previous.SetValue(entry,value,key.GetValueKind(""));
-                                    key.SetValue("",ClassId);
-                                }
-                            }
-                        }
-                    }catch{
-                        if(former==null)Unregister();
-                        else using(var server=Registry.CurrentUser.CreateSubKey(ClassKey+@"\InProcServer32"))server.SetValue("",former);
-                        throw;
-                    }
-                }else Unregister();
-            }finally{guard.ReleaseMutex();SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);}
+                });
+            }
         }
-    }
-    static void Unregister(){
-        if(!Same(Read(ClassKey+@"\InProcServer32"),Library))return;
-        using(var previous=Registry.CurrentUser.OpenSubKey(ClassKey+@"\Previous")){
-            foreach(string slot in Slots()){
-                string path=SlotKey(slot);
-                using(var key=Registry.CurrentUser.OpenSubKey(path,true)){
-                    if(key==null||!Same(key.GetValue("") as string,ClassId))continue;
-                    string entry=slot.Replace('\\','/');
-                    object saved=previous==null?null:previous.GetValue(entry,null,RegistryValueOptions.DoNotExpandEnvironmentNames);
-                    if(saved!=null){key.SetValue("",saved,previous.GetValueKind(entry));continue;}
-                    key.DeleteValue("",false);
-                    if(key.ValueCount!=0||key.SubKeyCount!=0)continue;
+        public void Rollback(){while(undo.Count>0)undo.Pop()();}
+        public void Clean(){
+            foreach(string path in emptyKeys.OrderByDescending(p=>p.Length)){
+                using(var key=Registry.CurrentUser.OpenSubKey(path)){
+                    if(key==null||key.ValueCount!=0||key.SubKeyCount!=0)continue;
                 }
                 Registry.CurrentUser.DeleteSubKey(path,false);
             }
         }
-        Registry.CurrentUser.DeleteSubKeyTree(ClassKey,false);
+    }
+    sealed class Registration {
+        readonly string id,keyPath;
+        readonly bool needsFile;
+        readonly string[] slots;
+        public Registration(string id,bool needsFile,params string[] extensions){
+            this.id=id;this.needsFile=needsFile;keyPath=@"Software\Classes\CLSID\"+id;
+            slots=extensions.SelectMany(e=>new[]{e,@"SystemFileAssociations\"+e}).ToArray();
+        }
+        public bool Enabled{get{return Same(Read(keyPath+@"\InProcServer32"),Library)&&slots.All(s=>Same(Read(SlotKey(s)),id));}}
+        public void Apply(bool enable,RegistryChanges edits){
+            string server=keyPath+@"\InProcServer32",history=keyPath+@"\Previous";
+            if(!enable&&!Same(Read(server),Library))return;
+            edits.Prune(keyPath);
+            edits.Write(server,"",enable?Library:null,RegistryValueKind.String);
+            edits.Write(server,"ThreadingModel",enable?"Apartment":null,RegistryValueKind.String);
+            // A glTF can keep its meshes in a sibling .bin. Only its shell adapter needs
+            // the item path; the parser and rasterizer always run in the child job.
+            if(needsFile)edits.Write(keyPath,"DisableProcessIsolation",enable?(object)1:null,RegistryValueKind.DWord);
+            foreach(string slot in slots){
+                string path=SlotKey(slot),entry=slot.Replace('\\','/');
+                using(var key=Registry.CurrentUser.OpenSubKey(path)){
+                    var value=key==null?null:key.GetValue("",null,RegistryValueOptions.DoNotExpandEnvironmentNames);
+                    bool owned=Same(value as string,id);
+                    if(enable){
+                        if(owned)continue;
+                        edits.Write(history,entry,value,value==null?RegistryValueKind.String:key.GetValueKind(""));
+                        edits.Write(path,"",id,RegistryValueKind.String);
+                    }else{
+                        using(var previous=Registry.CurrentUser.OpenSubKey(history)){
+                            var old=previous==null?null:previous.GetValue(entry,null,RegistryValueOptions.DoNotExpandEnvironmentNames);
+                            if(owned)edits.Write(path,"",old,old==null?RegistryValueKind.String:previous.GetValueKind(entry));
+                            edits.Write(history,entry,null,RegistryValueKind.String);
+                        }
+                    }
+                }
+            }
+            edits.Prune(history);
+        }
+    }
+    static readonly Registration images=new Registration("{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}",false,".exr",".psd",".hdr",".tga");
+    static readonly Registration models=new Registration("{4B64E151-E9B5-409A-A8F7-02D07D6D1BDD}",false,".obj",".fbx",".stl",".glb");
+    static readonly Registration gltf=new Registration("{4B64E152-E9B5-409A-A8F7-02D07D6D1BDD}",true,".gltf");
+    public static bool Enabled{get{return images.Enabled;}}
+    public static bool ModelsEnabled{get{return models.Enabled&&gltf.Enabled;}}
+    public static void SetEnabled(bool enable){SetRegistrations(enable,images);}
+    public static void SetModelsEnabled(bool enable){
+        if(enable&&!File.Exists(ModelFiles.ThumbnailRenderer))throw new FileNotFoundException("DollView.Convert.exe",ModelFiles.ThumbnailRenderer);
+        SetRegistrations(enable,models,gltf);
+    }
+    [DllImport("shell32.dll")] static extern void SHChangeNotify(uint eventId,uint flags,IntPtr first,IntPtr second);
+    static void SetRegistrations(bool enable,params Registration[] registrations){
+        if(enable&&!File.Exists(Library))throw new FileNotFoundException("DollView.Thumbnail.dll",Library);
+        using(var guard=new Mutex(false,@"Local\DollView.ExplorerThumbnailRegistration")){
+            try{if(!guard.WaitOne(TimeSpan.FromSeconds(10)))throw new IOException("DollView thumbnail registration is busy.");}
+            catch(AbandonedMutexException){}
+            try{
+                var edits=new RegistryChanges();
+                try{foreach(var registration in registrations)registration.Apply(enable,edits);}
+                catch{edits.Rollback();throw;}
+                finally{edits.Clean();}
+            }finally{guard.ReleaseMutex();SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);}
+        }
     }
 
     // Explorer supplies a seekable IStream. Read only the ranges the original decoder asks for.

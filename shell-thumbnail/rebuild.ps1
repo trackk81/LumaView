@@ -10,7 +10,7 @@ $src=Join-Path $PSScriptRoot 'provider.cpp'
 $exports=Join-Path $PSScriptRoot 'provider.def'
 Push-Location $build
 try{
-    $command='call "'+$dev+'" -no_logo -arch=x64 -host_arch=x64 && cl.exe /nologo /std:c++17 /O2 /W4 /EHsc /MT /LD /DUNICODE /D_UNICODE "'+$src+'" /link /Brepro /DEF:"'+$exports+'" /OUT:DollView.Thumbnail.dll ole32.lib uuid.lib gdi32.lib'
+    $command='call "'+$dev+'" -no_logo -arch=x64 -host_arch=x64 && cl.exe /nologo /std:c++17 /O2 /W4 /EHsc /MT /LD /DUNICODE /D_UNICODE "'+$src+'" /link /Brepro /DEF:"'+$exports+'" /OUT:DollView.Thumbnail.dll ole32.lib uuid.lib gdi32.lib shlwapi.lib'
     & $env:ComSpec /d /c $command
     if($LASTEXITCODE -ne 0){throw 'Thumbnail provider build failed'}
     Copy-Item -LiteralPath (Join-Path $build 'DollView.Thumbnail.dll') -Destination $PSScriptRoot

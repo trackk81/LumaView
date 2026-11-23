@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <shobjidl.h>
+#include <shlguid.h>
+#include <shlwapi.h>
 #include <thumbcache.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -13,6 +15,9 @@
 
 using Microsoft::WRL::ComPtr;
 static const CLSID providerId={0x4b64e150,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
+static const CLSID modelId={0x4b64e151,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
+static const CLSID gltfId={0x4b64e152,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
+enum class Kind { Image, Model, Gltf };
 static HINSTANCE module;
 static LONG objects;
 
@@ -60,7 +65,7 @@ struct Deadline {
     }
 };
 
-static HRESULT render(IStream* stream,UINT side,HBITMAP* result){
+static HRESULT render(IStream* stream,Kind kind,const std::wstring& origin,UINT side,HBITMAP* result){
     STATSTG stat={};
     if(FAILED(stream->Stat(&stat,STATFLAG_DEFAULT))&&FAILED(stream->Stat(&stat,STATFLAG_NONAME)))return E_FAIL;
     std::unique_ptr<wchar_t,decltype(&CoTaskMemFree)> name(stat.pwcsName,CoTaskMemFree);
@@ -68,6 +73,8 @@ static HRESULT render(IStream* stream,UINT side,HBITMAP* result){
     auto slash=filename.find_last_of(L"/\\");
     if(slash!=std::wstring::npos)filename.erase(0,slash+1);
     if(filename.size()>260)filename.clear();
+    if(kind==Kind::Gltf&&!origin.empty())filename=origin;
+    if(filename.size()>32767)return E_INVALIDARG;
     if(!stat.cbSize.QuadPart || stat.cbSize.HighPart>=0x80000000)return E_FAIL;
 
     wchar_t location[32768];
@@ -75,8 +82,8 @@ static HRESULT render(IStream* stream,UINT side,HBITMAP* result){
     if(!size||size>=ARRAYSIZE(location))return E_FAIL;
     std::wstring directory(location,size);
     directory.resize(directory.find_last_of(L'\\'));
-    std::wstring exe=directory+L"\\DollView.exe";
-    std::wstring command=L"\""+exe+L"\" --explorer-thumbnail "+std::to_wstring(side);
+    std::wstring exe=directory+(kind==Kind::Image?L"\\DollView.exe":L"\\model-converter\\DollView.Convert.exe");
+    std::wstring command=L"\""+exe+(kind==Kind::Image?L"\" --explorer-thumbnail ":L"\" --thumbnail-stream ")+std::to_wstring(side);
 
     SECURITY_ATTRIBUTES security={sizeof(security),nullptr,TRUE};
     Handle childIn,input,output,childOut,errors,job,process,thread;
@@ -135,17 +142,21 @@ static HRESULT render(IStream* stream,UINT side,HBITMAP* result){
     }
 }
 
-class Provider final : public IThumbnailProvider,public IInitializeWithStream {
+class Provider final : public IThumbnailProvider,public IInitializeWithStream,public IInitializeWithFile,public IInitializeWithItem {
     LONG refs=1;
+    Kind kind;
+    std::wstring origin;
     ComPtr<IStream> source;
 public:
-    Provider(){InterlockedIncrement(&objects);}
+    explicit Provider(Kind kind):kind(kind){InterlockedIncrement(&objects);}
     ~Provider(){InterlockedDecrement(&objects);}
     STDMETHODIMP QueryInterface(REFIID id,void** out) override{
         if(!out)return E_POINTER;
         *out=nullptr;
         if(id==IID_IUnknown||id==__uuidof(IThumbnailProvider))*out=static_cast<IThumbnailProvider*>(this);
-        else if(id==__uuidof(IInitializeWithStream))*out=static_cast<IInitializeWithStream*>(this);
+        else if(id==__uuidof(IInitializeWithStream)&&kind!=Kind::Gltf)*out=static_cast<IInitializeWithStream*>(this);
+        else if(id==__uuidof(IInitializeWithFile)&&kind==Kind::Gltf)*out=static_cast<IInitializeWithFile*>(this);
+        else if(id==__uuidof(IInitializeWithItem)&&kind==Kind::Gltf)*out=static_cast<IInitializeWithItem*>(this);
         else return E_NOINTERFACE;
         AddRef();return S_OK;
     }
@@ -156,12 +167,27 @@ public:
         if(source)return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
         source=stream;return S_OK;
     }
+    STDMETHODIMP Initialize(LPCWSTR file,DWORD) override{
+        if(!file)return E_INVALIDARG;
+        if(source)return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
+        try{origin=file;}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
+        return SHCreateStreamOnFileEx(file,STGM_READ|STGM_SHARE_DENY_NONE,0,FALSE,nullptr,source.GetAddressOf());
+    }
+    STDMETHODIMP Initialize(IShellItem* item,DWORD mode) override{
+        if(!item)return E_INVALIDARG;
+        if(source)return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
+        PWSTR path=nullptr;
+        if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&path))){
+            HRESULT hr=Initialize(path,mode);CoTaskMemFree(path);return hr;
+        }
+        return item->BindToHandler(nullptr,BHID_Stream,IID_PPV_ARGS(source.GetAddressOf()));
+    }
     STDMETHODIMP GetThumbnail(UINT side,HBITMAP* bitmap,WTS_ALPHATYPE* alpha) override{
         if(!bitmap||!alpha)return E_POINTER;
         *bitmap=nullptr;*alpha=WTSAT_UNKNOWN;
         if(!source||!side)return E_INVALIDARG;
         try{
-            HRESULT hr=render(source.Get(),std::min(side,1024u),bitmap);
+            HRESULT hr=render(source.Get(),kind,origin,std::min(side,1024u),bitmap);
             if(SUCCEEDED(hr))*alpha=WTSAT_ARGB;
             return hr;
         }catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_FAIL;}
@@ -169,8 +195,9 @@ public:
 };
 class Factory final : public IClassFactory {
     LONG refs=1;
+    Kind kind;
 public:
-    Factory(){InterlockedIncrement(&objects);}
+    explicit Factory(Kind kind):kind(kind){InterlockedIncrement(&objects);}
     ~Factory(){InterlockedDecrement(&objects);}
     STDMETHODIMP QueryInterface(REFIID id,void** out) override{
         if(!out)return E_POINTER;*out=nullptr;
@@ -181,14 +208,16 @@ public:
     STDMETHODIMP_(ULONG) Release() override{LONG left=InterlockedDecrement(&refs);if(!left)delete this;return left;}
     STDMETHODIMP CreateInstance(IUnknown* outer,REFIID id,void** out) override{
         if(!out)return E_POINTER;*out=nullptr;if(outer)return CLASS_E_NOAGGREGATION;
-        auto obj=new(std::nothrow) Provider();if(!obj)return E_OUTOFMEMORY;
+        auto obj=new(std::nothrow) Provider(kind);if(!obj)return E_OUTOFMEMORY;
         HRESULT hr=obj->QueryInterface(id,out);obj->Release();return hr;
     }
     STDMETHODIMP LockServer(BOOL lock) override{if(lock)InterlockedIncrement(&objects);else InterlockedDecrement(&objects);return S_OK;}
 };
 STDAPI DllGetClassObject(REFCLSID cls,REFIID id,void** out){
-    if(!out)return E_POINTER;*out=nullptr;if(cls!=providerId)return CLASS_E_CLASSNOTAVAILABLE;
-    auto factory=new(std::nothrow) Factory();if(!factory)return E_OUTOFMEMORY;
+    if(!out)return E_POINTER;*out=nullptr;
+    if(cls!=providerId&&cls!=modelId&&cls!=gltfId)return CLASS_E_CLASSNOTAVAILABLE;
+    Kind kind=cls==providerId?Kind::Image:cls==gltfId?Kind::Gltf:Kind::Model;
+    auto factory=new(std::nothrow) Factory(kind);if(!factory)return E_OUTOFMEMORY;
     HRESULT hr=factory->QueryInterface(id,out);factory->Release();return hr;
 }
 STDAPI DllCanUnloadNow(){return objects?S_FALSE:S_OK;}

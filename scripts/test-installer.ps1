@@ -8,7 +8,12 @@ New-Item -ItemType Directory -Path $runRoot | Out-Null
 $setupFull=(Resolve-Path -LiteralPath $SetupPath).Path
 $thumbClass='Registry::HKEY_CURRENT_USER\Software\Classes\CLSID\{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}'
 $testThumbs=!(Test-Path -LiteralPath $thumbClass)
-$tasks=if($testThumbs){'/TASKS="assoc_jpg,assoc_png,explorerthumbnails"'}else{'/TASKS="assoc_jpg,assoc_png"'}
+$modelClasses=@('{4B64E151-E9B5-409A-A8F7-02D07D6D1BDD}','{4B64E152-E9B5-409A-A8F7-02D07D6D1BDD}') | ForEach-Object { "HKCU:\Software\Classes\CLSID\$_" }
+$testModels=@($modelClasses | Where-Object {Test-Path -LiteralPath $_}).Count -eq 0
+$selectedTasks=@('assoc_jpg','assoc_png')
+if($testThumbs){$selectedTasks+='explorerthumbnails'}
+if($testModels){$selectedTasks+='modelthumbnails'}
+$tasks='/TASKS="'+($selectedTasks -join ',')+'"'
 $extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
 # Snapshot only LumaView-owned registration trees. Never touch FileExts/UserChoice.
 $trees=@('Software\LumaView\Capabilities','Software\LumaView\SelectedCapabilities','Software\Classes\Applications\DollView.exe')
@@ -31,6 +36,9 @@ foreach ($item in $valuePaths) {
 try {
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',$tasks,('/DIR="'+$installRoot+'"'),('/LOG="'+(Join-Path $runRoot 'install.log')+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Setup failed: $($process.ExitCode)" }
+    if($testModels){foreach($key in $modelClasses){
+        if((Get-Item -LiteralPath "$key\InProcServer32").GetValue('') -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw '3D thumbnail registration failed'}
+    }}
     if($testThumbs){
         $server=(Get-Item -LiteralPath "$thumbClass\InProcServer32").GetValue('')
         if($server -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw 'Explorer thumbnail task registration failed'}
@@ -58,6 +66,7 @@ try {
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS="assoc_jpg,assoc_png"',('/DIR="'+$installRoot+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw 'Upgrade installation failed' }
     if($testThumbs -and (Test-Path -LiteralPath $thumbClass)){throw 'Deselected thumbnail task still registered'}
+    if($testModels -and @($modelClasses | Where-Object {Test-Path -LiteralPath $_}).Count){throw 'Deselected 3D thumbnail task still registered'}
     Write-Output 'PASS in-place reinstall'
     $uninstall=Start-Process -FilePath (Join-Path $installRoot 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
     if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath (Join-Path $installRoot 'DollView.exe'))) { throw 'Uninstall failed' }

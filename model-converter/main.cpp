@@ -12,6 +12,7 @@
 namespace fs = std::filesystem;
 
 void prepareTextures(aiScene&,const fs::path&,const std::string&);
+int thumbnail(int argc,wchar_t** argv);
 
 static void convert(const fs::path& source,const fs::path& output) {
     const auto ext=output.extension().string();
@@ -50,7 +51,10 @@ static void convert(const fs::path& source,const fs::path& output) {
 }
 
 int wmain(int argc,wchar_t** argv) {
-    if(argc!=3)return 2;
-    try{convert(fs::path(argv[1]),fs::path(argv[2]));return 0;}
+    try{
+        if(argc>=3&&(std::wstring(argv[1])==L"--thumbnail-stream"||std::wstring(argv[1])==L"--thumbnail-file"))return thumbnail(argc,argv);
+        if(argc!=3)return 2;
+        convert(fs::path(argv[1]),fs::path(argv[2]));return 0;
+    }
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

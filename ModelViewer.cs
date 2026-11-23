@@ -58,6 +58,7 @@ static class FbxTextureFiles {
 }
 
 static class ModelFiles {
+    internal static string ThumbnailRenderer{get{return Path.Combine(Path.GetDirectoryName(typeof(ModelFiles).Assembly.Location),"model-converter","DollView.Convert.exe");}}
     public static bool Supported(string path){return ModelConversion.Formats.Contains(Path.GetExtension(path).TrimStart('.').ToLowerInvariant());}
     public static string PreviewPath(string path){
         var file=new FileInfo(path);string stamp=Path.GetFullPath(path)+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks;
@@ -78,10 +79,34 @@ static class ModelFiles {
         catch(IOException){}catch(UnauthorizedAccessException){}
         finally{try{if(File.Exists(temporary))File.Delete(temporary);}catch(IOException){}catch(UnauthorizedAccessException){}}
     }
+    internal static Bitmap RenderThumbnail(string path,int side){
+        var start=new System.Diagnostics.ProcessStartInfo(ThumbnailRenderer,"--thumbnail-file "+side+" "+UpdateFiles.Quote(Path.GetFullPath(path))){
+            UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true
+        };
+        using(var process=System.Diagnostics.Process.Start(start)){
+            var bytes=new byte[9+side*side*4];
+            using(var output=new MemoryStream(bytes,true)){
+                var copy=process.StandardOutput.BaseStream.CopyToAsync(output);
+                if(!process.WaitForExit(12000)){process.Kill();process.WaitForExit();}
+                copy.GetAwaiter().GetResult();
+                if(process.ExitCode!=0||output.Position!=bytes.Length||bytes[0]!='B'||
+                    BitConverter.ToInt32(bytes,1)!=side||BitConverter.ToInt32(bytes,5)!=side)return null;
+            }
+            var bitmap=new Bitmap(side,side,System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            var locked=bitmap.LockBits(new Rectangle(0,0,side,side),System.Drawing.Imaging.ImageLockMode.WriteOnly,bitmap.PixelFormat);
+            try{System.Runtime.InteropServices.Marshal.Copy(bytes,9,locked.Scan0,side*side*4);}
+            finally{bitmap.UnlockBits(locked);}
+            return bitmap;
+        }
+    }
     public static Bitmap Tile(string path){
         var bitmap=new Bitmap(180,120);using(var g=Graphics.FromImage(bitmap)){
             g.Clear(Color.FromArgb(32,35,40));bool preview=false;
             try{byte[] cached=PreviewData(path);if(cached!=null)using(var stream=new MemoryStream(cached))using(var image=Image.FromStream(stream)){g.DrawImage(image,0,0,180,120);preview=true;}}catch(IOException){}catch(ArgumentException){}
+            if(!preview){
+                try{using(var model=RenderThumbnail(path,120))if(model!=null){g.DrawImageUnscaled(model,30,0);preview=true;}}
+                catch(IOException){}catch(System.ComponentModel.Win32Exception){}
+            }
             if(!preview)using(var pen=new Pen(Color.FromArgb(133,204,230),3)){
                 var top=new[]{new Point(90,22),new Point(124,40),new Point(90,59),new Point(56,40)};g.DrawPolygon(pen,top);g.DrawLines(pen,new[]{new Point(56,40),new Point(56,77),new Point(90,96),new Point(124,77),new Point(124,40)});g.DrawLine(pen,90,59,90,96);
             }
