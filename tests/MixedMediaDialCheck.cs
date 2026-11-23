@@ -36,6 +36,38 @@ class MixedMediaDialCheck {
         var state=new byte[256];Check(GetKeyboardState(state),"read thread input state");
         state[4]=(byte)(down?128:0);Check(SetKeyboardState(state),"set thread middle button");
     }
+    static void CheckImageZoom(Control canvas){
+        var saved=new byte[256];Check(GetKeyboardState(saved),"save input state");
+        var keys=(byte[])saved.Clone();
+        var scale=canvas.GetType().GetProperty("ViewScale");
+        Func<double> viewScale=()=>(double)scale.GetValue(canvas,null);
+        var anchor=new Point(canvas.Width/2,canvas.Height/3);
+        var press=canvas.PointToScreen(anchor);
+        int travel=60*canvas.DeviceDpi/96;
+        try{
+            keys[(int)Keys.ControlKey]=128;Check(SetKeyboardState(keys),"hold Ctrl");
+            double start=viewScale();
+            SendMessage(canvas.Handle,0x20A,new IntPtr((-120<<16)|8),new IntPtr((press.Y<<16)|(press.X&65535)));
+            double beforeDrag=viewScale();
+            Check(Math.Abs(beforeDrag-start/1.2)<0.0001,"Ctrl+wheel zoom");
+            float panBefore=((PointF)Field(canvas,"Pan")).Y;
+            SetMiddleButton(true);DragMessage(canvas,0x207,press.Y);
+            DragMessage(canvas,0x200,press.Y-travel);
+            double enlarged=viewScale();
+            Check(enlarged>beforeDrag,"Ctrl+middle drag up zooms in");
+            double offset=anchor.Y-canvas.Height/2.0;
+            double anchoredPan=offset-(offset-panBefore)*enlarged/beforeDrag;
+            Check(Math.Abs(((PointF)Field(canvas,"Pan")).Y-anchoredPan)<0.001,"zoom stays centered on the press");
+            DragMessage(canvas,0x200,press.Y+travel);
+            Check(viewScale()<beforeDrag,"reversing the drag zooms out");
+            DragMessage(canvas,0x200,press.Y);
+            Check(Math.Abs(viewScale()-beforeDrag)<0.0001,"zoom returns to starting scale");
+            Check(!(bool)Field(Field(canvas,"Sidebar"),"visible"),"zoom keeps the file dial hidden");
+        }finally{
+            SetMiddleButton(false);DragMessage(canvas,0x208,press.Y);
+            Check(SetKeyboardState(saved),"restore input state");
+        }
+    }
     static async Task Run(string folder,bool fullscreen){
         var app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));
         var ui=app.GetType("LumaView.Ui");
@@ -57,6 +89,7 @@ class MixedMediaDialCheck {
             }
             var expectedBounds=viewer.Bounds;
             Check(((string[])Field(album,"WheelFiles")).Select(Path.GetFileName).SequenceEqual(new[]{"clip1.png","clip2.mp4","clip3.mov","clip4.png","clip10.png"}),"mixed natural order");
+            CheckImageZoom(canvas);
             Wheel(canvas,-120);
             await Wait(()=>NameOfVideo(Video())=="clip2.mp4"&&(bool)Field(Video(),"ready"),"image to playing MP4");
             var movie=Video();var surface=(Control)Field(movie,"host");

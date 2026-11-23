@@ -353,11 +353,7 @@ partial class Viewer : Form {
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
         SetupWorkspace(); toolbar.Dock=DockStyle.Top; Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
         canvas.Changed+=UpdateInfo;canvas.MouseDoubleClick+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left)Fullscreen();};
-        dialInput.Attach(canvas,()=>full&&!playbackActive,MoveDial);
-        canvas.MouseWheel+=delegate(object sender,MouseEventArgs e){
-            if(!full||e.Delta==0)return;
-            if((ModifierKeys&Keys.Control)!=0)canvas.ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location);
-        };
+        dialInput.Attach(canvas,()=>full&&!playbackActive,MoveDial,canvas.ChangeZoom);
         slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};

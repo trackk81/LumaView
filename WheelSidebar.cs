@@ -15,16 +15,21 @@ namespace LumaView {
 sealed class MediaDialInput {
     int wheelDelta;
     int? anchorY;
+    Point? zoomAnchor;
     int lastY;
-    public void Reset(){wheelDelta=0;anchorY=null;}
+    public void Reset(){wheelDelta=0;anchorY=null;zoomAnchor=null;}
     public void ResumeDrag(Control surface){
         if(!anchorY.HasValue)return;
         if((Control.MouseButtons&MouseButtons.Middle)!=0)surface.Capture=true;
         else anchorY=null;
     }
-    public void Attach(Control surface,Func<bool> enabled,Action<int> navigate){
+    public void Attach(Control surface,Func<bool> enabled,Action<int> navigate,Action<double,Point> zoom=null){
         surface.MouseWheel+=delegate(object sender,MouseEventArgs e){
-            if(!enabled()||e.Delta==0||(Control.ModifierKeys&Keys.Control)!=0)return;
+            if(!enabled()||e.Delta==0)return;
+            if((Control.ModifierKeys&Keys.Control)!=0){
+                if(zoom!=null)zoom(e.Delta>0?1.2:1/1.2,e.Location);
+                return;
+            }
             wheelDelta+=e.Delta;
             int steps=wheelDelta/SystemInformation.MouseWheelScrollDelta;
             wheelDelta%=SystemInformation.MouseWheelScrollDelta;
@@ -32,22 +37,35 @@ sealed class MediaDialInput {
         };
         surface.MouseDown+=delegate(object sender,MouseEventArgs e){
             if(e.Button!=MouseButtons.Middle||!enabled())return;
-            lastY=surface.PointToScreen(e.Location).Y;anchorY=lastY;
-            surface.Focus();surface.Capture=true;navigate(0);
+            surface.Focus();surface.Capture=true;
+            lastY=surface.PointToScreen(e.Location).Y;
+            if(zoom!=null&&(Control.ModifierKeys&Keys.Control)!=0){
+                zoomAnchor=e.Location;anchorY=null;
+                return;
+            }
+            zoomAnchor=null;anchorY=lastY;navigate(0);
         };
         surface.MouseMove+=delegate(object sender,MouseEventArgs e){
             if(!enabled())return;
-            if((e.Button&MouseButtons.Middle)==0){anchorY=null;return;}
-            if(!anchorY.HasValue)return;
+            if((e.Button&MouseButtons.Middle)==0){anchorY=null;zoomAnchor=null;return;}
+            if(!zoomAnchor.HasValue&&!anchorY.HasValue)return;
+            if(zoomAnchor.HasValue&&(zoom==null||!surface.Capture))return;
             int y=surface.PointToScreen(e.Location).Y;
             if(y==lastY)return;
+            int travel=lastY-y;
             lastY=y;
+            if(zoomAnchor.HasValue){
+                // Dragging up 120 logical pixels doubles the scale around the original press.
+                zoom(Math.Pow(2,travel*96.0/(120*surface.DeviceDpi)),zoomAnchor.Value);
+                return;
+            }
             int stride=Math.Max(1,48*surface.DeviceDpi/96);
             int steps=(y-anchorY.Value)/stride;
             anchorY+=steps*stride;
             navigate(steps);
         };
-        surface.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Middle){anchorY=null;surface.Capture=false;}};
+        surface.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Middle){anchorY=null;zoomAnchor=null;surface.Capture=false;}};
+        if(zoom!=null)surface.MouseCaptureChanged+=delegate{if(!surface.Capture)zoomAnchor=null;};
     }
 }
 sealed class WheelSidebar : IDisposable {
