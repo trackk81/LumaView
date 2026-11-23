@@ -17,6 +17,31 @@ static class FileAssociations {
     public static string CurrentApp(string extension){uint length=512;var text=new StringBuilder((int)length);return AssocQueryString(0,4,extension,null,text,ref length)==0?text.ToString():Ui.T("확인 불가");}
     public static bool Registered(string extension){using(var key=Registry.CurrentUser.OpenSubKey(Capabilities+@"\FileAssociations"))return key!=null&&key.GetValue(extension)!=null;}
     public static string OpenCommand(string executable){return "\""+executable+"\" \"%1\"";}
+    static string ThumbnailOverlay(string executable,string extension){
+        string file="file"+extension;
+        if(ModelFiles.Supported(file))
+            return "\""+Path.Combine(Path.GetDirectoryName(executable),"assets","DollView-3D.ico")+"\",0";
+        return Album.Supported(file)?"\""+executable+"\",0":null;
+    }
+    // Upgrade existing registrations in place. A portable copy must not point
+    // another installation's thumbnail badges at its own assets.
+    internal static void RefreshThumbnailOverlays(string executable){
+        bool changed=false;
+        foreach(string extension in Extensions){
+            string overlay=ThumbnailOverlay(executable,extension);
+            if(overlay==null)continue;
+            string path=@"Software\Classes\LumaView.File"+extension;
+            using(var key=Registry.CurrentUser.OpenSubKey(path,true)){
+                if(key==null||String.Equals(key.GetValue("TypeOverlay") as string,overlay,StringComparison.OrdinalIgnoreCase))continue;
+                using(var command=key.OpenSubKey(@"shell\open\command")){
+                    if(command==null||!String.Equals(command.GetValue("") as string,OpenCommand(executable),StringComparison.OrdinalIgnoreCase))continue;
+                }
+                key.SetValue("TypeOverlay",overlay);
+                changed=true;
+            }
+        }
+        if(changed)SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);
+    }
     internal static void MigrateLegacyCommand(string previous,string current){
         string oldCommand=OpenCommand(previous),newCommand=OpenCommand(current);
         var classes=Extensions.Select(extension=>"LumaView.File"+extension)
@@ -46,6 +71,8 @@ static class FileAssociations {
             string progId="LumaView.File"+extension;
             using(var prog=Registry.CurrentUser.CreateSubKey(@"Software\Classes\"+progId)){
                 prog.SetValue("","DollView "+extension.ToUpperInvariant()+" file");
+                string overlay=ThumbnailOverlay(executable,extension);
+                if(overlay!=null)prog.SetValue("TypeOverlay",overlay);
                 using(var icon=prog.CreateSubKey("DefaultIcon"))icon.SetValue("","\""+iconPath+"\",0");
                 using(var command=prog.CreateSubKey(@"shell\open\command"))command.SetValue("",OpenCommand(executable));
             }

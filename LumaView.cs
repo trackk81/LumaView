@@ -21,7 +21,14 @@ static class Program {
         if(args.Length>=2&&args[0]=="--update-complete"&&Guid.TryParseExact(args[1],"N",out parsed)){updateId=args[1];args=args.Skip(2).ToArray();}
         using(var viewer=new Viewer(args.Length>0?args[0]:null)){
             if(updateId!=null)viewer.Shown+=delegate{try{using(var ready=System.Threading.EventWaitHandle.OpenExisting("Local\\LumaView.Update."+updateId)){ready.Set();viewer.ShowUpdateComplete();}}catch(System.Threading.WaitHandleCannotBeOpenedException){}};
-            viewer.Shown+=delegate{System.Threading.Tasks.Task.Run(()=>UpdateFiles.RemoveLegacyLaunchers(Application.ExecutablePath,FileAssociations.MigrateLegacyCommand));};
+            viewer.Shown+=delegate{System.Threading.Tasks.Task.Run(()=>{
+                string executable=Application.ExecutablePath;
+                UpdateFiles.RemoveLegacyLaunchers(executable,FileAssociations.MigrateLegacyCommand);
+                try{FileAssociations.RefreshThumbnailOverlays(executable);}
+                catch(UnauthorizedAccessException){}
+                catch(System.Security.SecurityException){}
+                catch(IOException){}
+            });};
             Application.Run(viewer);
         }
         if(AppUpdater.ExitForUpdate)Environment.Exit(0);

@@ -20,6 +20,21 @@ static void Associations(){
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().OrderBy(x=>x).SequenceEqual(new[]{".jpg",".png"}),"installer passes selected types to Windows settings");
    Call("FileAssociations","PrepareSelectedTypes",new object[]{new[]{".png"}});
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().SequenceEqual(new[]{".png"}),"Windows defaults page contains only chosen extensions");
+   Call("FileAssociations","Register",new object[]{new[]{".glb",".mp4"}});
+   const string classes=@"Software\Classes\LumaView.File";
+   string logo="\""+Application.ExecutablePath+"\",0";
+   string modelLogo="\""+Path.Combine(Application.StartupPath,"assets","DollView-3D.ico")+"\",0";
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".png",true)){
+    Check(logo.Equals(key.GetValue("TypeOverlay")),"image thumbnails use the application logo");
+    key.DeleteValue("TypeOverlay");
+   }
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".glb"))Check(modelLogo.Equals(key.GetValue("TypeOverlay")),"3D thumbnails use the labeled logo");
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".mp4"))Check(key.GetValue("TypeOverlay")==null,"video overlay follows Windows behavior");
+   Call("FileAssociations","RefreshThumbnailOverlays",@"C:\Other\DollView.exe");
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".png"))Check(key.GetValue("TypeOverlay")==null,"another copy leaves existing registration alone");
+   Call("FileAssociations","RefreshThumbnailOverlays",Application.ExecutablePath);
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".png"))Check(logo.Equals(key.GetValue("TypeOverlay")),"upgrade fills existing thumbnail registration");
+   using(var key=Registry.CurrentUser.OpenSubKey(@"Software\Classes\SystemFileAssociations\image"))Check(key==null,"image-wide overlay settings stay untouched");
    Call("FileAssociations","UnregisterOwned");
    Check(!(bool)Call("FileAssociations","Registered",".jpg"),"uninstall removes this installation's registration");
    using(var key=Registry.CurrentUser.OpenSubKey(choice))Check((string)key.GetValue("ProgId")=="AnotherViewer.Jpeg","existing Windows UserChoice survives register/unregister");
