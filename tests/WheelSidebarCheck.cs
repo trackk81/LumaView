@@ -84,7 +84,7 @@ class WheelSidebarCheck {
                 viewer.Show();At(4);
                 var toggle=(ToolStripButton)Field(viewer,"sidebarButton");
                 var mode=(ToolStripButton)Field(viewer,"imageModeButton");
-                Check(!toggle.Available&&toggle.Checked,"default in a window");
+                Check(toggle.Available&&toggle.Checked&&Layer()==null,"sidebar is enabled but idle in a window");
                 mode.PerformClick();Check(toggle.Available&&Layer()==null,"enter fullscreen");
                 Wheel(-120);At(5);Center(5);
                 Wait(()=>(int)Field(sidebar,"direction")==0&&!(bool)Field(sidebar,"loading"),"neighbors");
@@ -122,8 +122,9 @@ class WheelSidebarCheck {
                 toggle.PerformClick();Check(!toggle.Checked&&File.ReadAllText(settings).Contains("wheelSidebar=off"),"persist off");
                 Wheel(-120);At(1);Check(Layer()==null,"navigate while disabled");
                 toggle.PerformClick();Center(1);Check(File.ReadAllText(settings).Contains("wheelSidebar=on"),"persist on");
-                mode.PerformClick();Check(!toggle.Available&&Layer()==null,"leave fullscreen");
-                Wheel(120);At(0);Check(Layer()==null,"windowed navigation");
+                mode.PerformClick();Check(toggle.Available&&Layer()==null,"leave fullscreen");
+                Wheel(120);At(0);Center(0);CompositedCenter(0);
+                Wait(()=>Layer()==null,"windowed sidebar hides after inactivity");
                 viewer.Close();
             }
         }finally{

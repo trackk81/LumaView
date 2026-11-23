@@ -331,7 +331,7 @@ partial class Viewer : Form {
         canvas.Sidebar=new WheelSidebar(canvas);
         sidebarButton=WheelSidebar.ToggleButton(delegate{
             if(!Ui.WheelSidebarEnabled)canvas.Sidebar.Hide();
-            else if(imageFullscreen)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
+            else if(full)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
             canvas.Focus();
         });
         toolbar.Items.Add(sidebarButton);Sep();
@@ -353,11 +353,10 @@ partial class Viewer : Form {
         info.Spring=true; info.TextAlign=ContentAlignment.MiddleLeft; status.Items.Add(info); status.BackColor=Color.FromArgb(38,42,48); status.ForeColor=Color.FromArgb(205,211,220); status.SizingGrip=false;
         SetupWorkspace(); toolbar.Dock=DockStyle.Top; Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
         canvas.Changed+=UpdateInfo;canvas.MouseDoubleClick+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left)Fullscreen();};
-        dialInput.Attach(canvas,()=>imageFullscreen&&!playbackActive,FullscreenWheel);
+        dialInput.Attach(canvas,()=>full&&!playbackActive,MoveDial);
         canvas.MouseWheel+=delegate(object sender,MouseEventArgs e){
             if(!full||e.Delta==0)return;
             if((ModifierKeys&Keys.Control)!=0)canvas.ChangeZoom(e.Delta>0?1.2:1/1.2,e.Location);
-            else if(!imageFullscreen)Navigate(e.Delta<0?1:-1);
         };
         slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
@@ -386,11 +385,11 @@ partial class Viewer : Form {
     void Loaded(){
         canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();
         wheelIndex=Array.IndexOf(album.WheelFiles,album.Current);
-        if(imageFullscreen&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
+        if(full&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
         else canvas.Sidebar.Select(album.WheelFiles,wheelIndex,album.Image);
         Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current));SyncExplorer();
     }
-    void FullscreenWheel(int steps){
+    void MoveDial(int steps){
         int from=wheelTarget>=0?wheelTarget:busy?loadingWheelIndex:wheelIndex;
         if(from<0)return;
         if(sidebarButton.Checked)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
@@ -400,7 +399,7 @@ partial class Viewer : Form {
     }
     void ContinueWheel(){
         if(busy||wheelTarget<0)return;
-        if(!imageFullscreen||wheelTarget==wheelIndex){wheelTarget=-1;return;}
+        if(!full||wheelTarget==wheelIndex){wheelTarget=-1;return;}
         string path=album.WheelFiles[wheelTarget];
         if(MediaFiles.IsVideo(path)){
             wheelTarget=-1;

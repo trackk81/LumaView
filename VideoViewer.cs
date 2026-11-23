@@ -112,10 +112,28 @@ static class MediaFiles {
         }return bitmap;
     }
 }
+// The image and video surfaces live in different forms but represent one viewer window.
+struct MediaWindowPlacement {
+    public Rectangle NormalBounds;
+    public FormWindowState NormalState;
+    public Rectangle? FullscreenBounds;
+    public static MediaWindowPlacement Capture(Form form,bool fullscreen,Rectangle savedBounds,FormWindowState savedState){
+        return new MediaWindowPlacement{
+            NormalBounds=fullscreen?savedBounds:(form.WindowState==FormWindowState.Normal?form.Bounds:form.RestoreBounds),
+            NormalState=fullscreen?savedState:form.WindowState,
+            FullscreenBounds=fullscreen?(Rectangle?)form.Bounds:null
+        };
+    }
+    public void ApplyWindowed(Form form){
+        form.WindowState=FormWindowState.Normal;
+        form.Bounds=NormalBounds;
+        form.WindowState=NormalState;
+    }
+}
 partial class Viewer {
     void OpenVideo(string path,bool fromDial=false){
         StopSlide();enterAfterLoad=false;startSlideAfterLoad=false;
-        if(fromDial){canvas.Sidebar.Hide();chrome.Disable();}
+        if(fromDial){canvas.Sidebar.Hide();if(chrome!=null)chrome.Disable();}
         else{
             if(full&&!startupOpening)ExitImageView();
             ShowFileFolder(path);
@@ -124,23 +142,29 @@ partial class Viewer {
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
         string imagePath=null,lastPath=path;
-        Rectangle imageScreen=Rectangle.Empty;
+        var placement=fromDial?MediaWindowPlacement.Capture(this,imageFullscreen,oldBounds,oldState):new MediaWindowPlacement{NormalBounds=bounds};
         string[] order=fromDial?album.WheelFiles:null;
         playbackActive=true;
         try{
-            using(var player=new VideoViewer(path,bounds,order,dialInput,fromDial)){
+            using(var player=new VideoViewer(path,placement,order,dialInput)){
                 ShowMediaViewer(player);
                 order=player.WheelFiles;imagePath=player.RequestedImage;lastPath=player.CurrentFile;
-                if(imagePath!=null)imageScreen=Screen.FromRectangle(player.Bounds).Bounds;
+                if(imagePath!=null)placement=player.ImagePlacement;
             }
         }finally{playbackActive=false;startupOpening=false;}
         if(IsDisposed)return;
         sidebarButton.Checked=Ui.WheelSidebarEnabled;
         if(imagePath!=null){
             EnterImageView(true);
-            if(!imageFullscreen)SetImageFullscreen(true,imageScreen);
-            else{Bounds=imageScreen;chrome.Enable();}
-            canvas.Focus();LoadAsync(imagePath,-1,order);
+            if(imageFullscreen&&placement.FullscreenBounds.HasValue){
+                oldBounds=placement.NormalBounds;oldState=placement.NormalState;
+                Bounds=placement.FullscreenBounds.Value;chrome.Enable();
+            }else{
+                if(imageFullscreen)SetImageFullscreen(false);
+                placement.ApplyWindowed(this);
+                if(placement.FullscreenBounds.HasValue)SetImageFullscreen(true,placement.FullscreenBounds);
+            }
+            canvas.Focus();dialInput.ResumeDrag(canvas);LoadAsync(imagePath,-1,order);
             return;
         }
         dialInput.Reset();
@@ -195,6 +219,7 @@ sealed class VideoViewer : MediaViewerForm {
     bool dialDirty;
     internal string[] WheelFiles{get;private set;}
     internal string RequestedImage{get;private set;}
+    internal MediaWindowPlacement ImagePlacement{get;private set;}
     internal string CurrentFile{get{return current??files[index];}}
     int wheelIndex;
     Task startup;
@@ -210,9 +235,9 @@ sealed class VideoViewer : MediaViewerForm {
     string codec="",hardware="",current;
     string[] files;
     int index;
-    public VideoViewer(string path,Rectangle bounds):this(path,bounds,null,new MediaDialInput(),false){}
-    internal VideoViewer(string path,Rectangle bounds,string[] folderFiles,MediaDialInput input,bool startWithDial){
-        Text=AppUpdater.WindowTitle(Path.GetFileName(path));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;ImeMode=ImeMode.Disable;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;Bounds=bounds;
+    public VideoViewer(string path,Rectangle bounds):this(path,new MediaWindowPlacement{NormalBounds=bounds},null,new MediaDialInput()){}
+    internal VideoViewer(string path,MediaWindowPlacement placement,string[] folderFiles,MediaDialInput input){
+        Text=AppUpdater.WindowTitle(Path.GetFileName(path));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;ImeMode=ImeMode.Disable;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;placement.ApplyWindowed(this);
         path=Path.GetFullPath(path);dialInput=input;
         WheelFiles=folderFiles??MediaFiles.ListImagesAndVideos(Path.GetDirectoryName(path));
         files=WheelFiles.Where(MediaFiles.IsVideo).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
@@ -244,8 +269,9 @@ sealed class VideoViewer : MediaViewerForm {
         seek.MouseUp+=delegate{if(!dragging)return;dragging=false;SeekAbsolute();};
         seek.MouseCaptureChanged+=delegate{if(dragging&&!seek.Capture){dragging=false;SeekAbsolute();}};
         host.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left){host.Focus();Toggle();}};Controls.Add(host);
-        dialInput.Attach(host,()=>fullscreen&&!closing,MoveDial);
+        dialInput.Attach(host,()=>!closing,MoveDial);
         host.SizeChanged+=delegate{dialDirty=true;};
+        host.LocationChanged+=delegate{dialDirty=true;};
         LocationChanged+=delegate{dialDirty=true;};
         chrome=new FullscreenChrome(this,tools,bottom,delegate(Keys key){var msg=new Message();return ProcessCmdKey(ref msg,key);});chrome.AddTop(details);chrome.AddTop(title);
         DockWindowControls();
@@ -253,15 +279,16 @@ sealed class VideoViewer : MediaViewerForm {
         player=new MpvPlayer(this);player.Message+=OnPlayerMessage;player.Failed+=ShowFailure;
         timer.Tick+=delegate{UpdateTimeline();DrainNavigation();if(dialDirty)DrawDial();};
         Shown+=delegate{
-            if(startWithDial){ToggleFullscreen();RevealDial();}
+            if(placement.FullscreenBounds.HasValue){ToggleFullscreen();Bounds=placement.FullscreenBounds.Value;}
+            if(folderFiles!=null){dialInput.ResumeDrag(host);RevealDial();}
             startup=player.Start(host.Handle);LoadCurrent();timer.Start();
         };
         FormClosed+=delegate{closing=true;loadVersion++;timer.Stop();timer.Dispose();sidebar.Dispose();dialOverlay.Dispose();chrome.Dispose();player.Dispose();};
     }
-    void RevealDial(){if(fullscreen&&Ui.WheelSidebarEnabled)sidebar.Reveal(WheelFiles,wheelIndex,null);}
+    void RevealDial(){if(Ui.WheelSidebarEnabled)sidebar.Reveal(WheelFiles,wheelIndex,null);}
     void DrawDial(){
         dialDirty=false;
-        var layer=fullscreen?sidebar.Layer():null;
+        var layer=Visible&&WindowState!=FormWindowState.Minimized?sidebar.Layer():null;
         if(layer==null){dialOverlay.Hide();return;}
         dialOverlay.Present(this,layer,host.PointToScreen(sidebar.Location),sidebar.Opacity);
     }
@@ -269,7 +296,10 @@ sealed class VideoViewer : MediaViewerForm {
         int next=Math.Max(0,Math.Min(WheelFiles.Length-1,wheelIndex+steps));
         if(next!=wheelIndex){
             string path=WheelFiles[next];
-            if(!MediaFiles.IsVideo(path)){RequestedImage=path;Close();return;}
+            if(!MediaFiles.IsVideo(path)){
+                ImagePlacement=MediaWindowPlacement.Capture(this,fullscreen,windowBounds,windowState);
+                RequestedImage=path;Close();return;
+            }
             index=Array.IndexOf(files,path);LoadCurrent();
         }
         RevealDial();
@@ -284,7 +314,7 @@ sealed class VideoViewer : MediaViewerForm {
     void ToggleFullscreen(){
         if(closing)return;
         fullscreen=!fullscreen;
-        sidebarButton.Available=fullscreen;sidebarButton.Checked=Ui.WheelSidebarEnabled;
+        sidebarButton.Checked=Ui.WheelSidebarEnabled;
         if(fullscreen){
             var screen=Screen.FromControl(this).Bounds;
             windowState=WindowState;

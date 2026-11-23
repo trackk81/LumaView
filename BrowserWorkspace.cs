@@ -306,9 +306,8 @@ partial class Viewer {
     void SetImageFullscreen(bool enabled,Rectangle? targetScreen=null){
         if(!full||imageFullscreen==enabled)return;
         imageFullscreen=enabled;
-        sidebarButton.Available=enabled;
         sidebarButton.Checked=Ui.WheelSidebarEnabled;
-        if(!enabled){wheelTarget=-1;dialInput.Reset();canvas.Sidebar.Hide();}
+        canvas.Sidebar.Hide();
         if(enabled){
             var screen=targetScreen??Screen.FromControl(this).Bounds;
             oldState=WindowState;
@@ -335,6 +334,7 @@ partial class Viewer {
         canvas.Focus();
     }
     void ExitImageView(){
+        wheelTarget=-1;dialInput.Reset();canvas.Sidebar.Hide();
         SuspendLayout();
         try{
             if(full){SetImageFullscreen(false);MinimumSize=galleryMinimumSize;}

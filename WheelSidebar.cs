@@ -15,7 +15,13 @@ namespace LumaView {
 sealed class MediaDialInput {
     int wheelDelta;
     int? anchorY;
+    int lastY;
     public void Reset(){wheelDelta=0;anchorY=null;}
+    public void ResumeDrag(Control surface){
+        if(!anchorY.HasValue)return;
+        if((Control.MouseButtons&MouseButtons.Middle)!=0)surface.Capture=true;
+        else anchorY=null;
+    }
     public void Attach(Control surface,Func<bool> enabled,Action<int> navigate){
         surface.MouseWheel+=delegate(object sender,MouseEventArgs e){
             if(!enabled()||e.Delta==0||(Control.ModifierKeys&Keys.Control)!=0)return;
@@ -26,7 +32,7 @@ sealed class MediaDialInput {
         };
         surface.MouseDown+=delegate(object sender,MouseEventArgs e){
             if(e.Button!=MouseButtons.Middle||!enabled())return;
-            anchorY=surface.PointToScreen(e.Location).Y;
+            lastY=surface.PointToScreen(e.Location).Y;anchorY=lastY;
             surface.Focus();surface.Capture=true;navigate(0);
         };
         surface.MouseMove+=delegate(object sender,MouseEventArgs e){
@@ -34,9 +40,10 @@ sealed class MediaDialInput {
             if((e.Button&MouseButtons.Middle)==0){anchorY=null;return;}
             if(!anchorY.HasValue)return;
             int y=surface.PointToScreen(e.Location).Y;
+            if(y==lastY)return;
+            lastY=y;
             int stride=Math.Max(1,48*surface.DeviceDpi/96);
             int steps=(y-anchorY.Value)/stride;
-            if(steps==0)return;
             anchorY+=steps*stride;
             navigate(steps);
         };
@@ -68,7 +75,7 @@ sealed class WheelSidebar : IDisposable {
         var button=new ToolStripButton(Ui.T("사이드바")){
             ToolTipText=Ui.T("휠 또는 가운데 버튼 드래그로 주변 파일 보기"),
             DisplayStyle=ToolStripItemDisplayStyle.Text,CheckOnClick=true,
-            Checked=Ui.WheelSidebarEnabled,Available=false};
+            Checked=Ui.WheelSidebarEnabled};
         button.Click+=delegate{
             Ui.WheelSidebarEnabled=button.Checked;
             try{Ui.Save(Ui.Language,Ui.Theme);}catch(IOException){}catch(UnauthorizedAccessException){}
