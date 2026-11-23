@@ -6,13 +6,13 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 
 namespace fs = std::filesystem;
 
-void prepareTextures(aiScene&,const fs::path&,const std::string&);
-void relinkFbxTextures(const aiScene&,const fs::path&,bool);
+std::unique_ptr<aiScene> prepareTextures(Assimp::Importer&,const fs::path&,const fs::path&,const std::string&,std::set<std::string>&);
 int thumbnail(int argc,wchar_t** argv);
 
 static void convert(const fs::path& source,const fs::path& output) {
@@ -30,13 +30,9 @@ static void convert(const fs::path& source,const fs::path& output) {
     if(!imported)
         throw std::runtime_error(reader.GetErrorString());
     const bool fbx=_wcsicmp(source.extension().c_str(),L".fbx")==0;
-    if(format!="stlb"){
-        if(fbx)relinkFbxTextures(*imported,source,format=="glb2"||format=="gltf2");
-        if(!reader.ApplyPostProcessing(aiProcess_EmbedTextures))throw std::runtime_error(reader.GetErrorString());
-    }
-    std::unique_ptr<aiScene> scene(reader.GetOrphanedScene());
-    if(!scene->HasMeshes()||!scene->mRootNode)throw std::runtime_error("The source contains no meshes.");
-    if(format!="stlb")prepareTextures(*scene,output,format);
+    if(!imported->HasMeshes()||!imported->mRootNode)throw std::runtime_error("The source contains no meshes.");
+    std::set<std::string> skipped;
+    auto scene=format=="stlb"?std::unique_ptr<aiScene>(reader.GetOrphanedScene()):prepareTextures(reader,source,output,format,skipped);
     if(fbx){
         // The FBX importer puts the original basis and cm/unit on the root.
         aiMatrix4x4 meters;aiMatrix4x4::Scaling(aiVector3D(.01f),meters);
@@ -55,6 +51,7 @@ static void convert(const fs::path& source,const fs::path& output) {
     if(writer.Export(scene.get(),format,output.u8string())!=AI_SUCCESS)
         throw std::runtime_error(writer.GetErrorString());
     if(!fs::is_regular_file(output)||!fs::file_size(output))throw std::runtime_error("Empty conversion output.");
+    for(const auto& name:skipped)std::cerr<<"Skipped texture: "<<name<<'\n';
 }
 
 int wmain(int argc,wchar_t** argv) {

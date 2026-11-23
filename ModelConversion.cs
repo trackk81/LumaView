@@ -24,7 +24,7 @@ static class ModelConversion {
             return Path.GetFileName(candidate);
         }
     }
-    internal static void Convert(string source,string destination,CancellationToken token){
+    internal static string[] Convert(string source,string destination,CancellationToken token){
         source=Path.GetFullPath(source);destination=Path.GetFullPath(destination);
         string ext=Path.GetExtension(destination).TrimStart('.').ToLowerInvariant();
         if(!ModelFiles.Supported(source)||!Formats.Contains(ext))throw new ArgumentException(Say("지원하지 않는 형식입니다.","Unsupported model format."));
@@ -43,14 +43,19 @@ static class ModelConversion {
                 WorkingDirectory=Path.GetDirectoryName(source),UseShellExecute=false,CreateNoWindow=true,
                 RedirectStandardError=true,StandardErrorEncoding=Encoding.UTF8
             };
+            string diagnostics;
             using(var process=Process.Start(info))
             using(token.Register(delegate{try{if(!process.HasExited)process.Kill();}catch(InvalidOperationException){}catch(System.ComponentModel.Win32Exception){}})){
-                string error=process.StandardError.ReadToEnd();process.WaitForExit();token.ThrowIfCancellationRequested();
+                diagnostics=process.StandardError.ReadToEnd();process.WaitForExit();token.ThrowIfCancellationRequested();
                 if(process.ExitCode!=0||!File.Exists(main)||new FileInfo(main).Length==0)
                     throw new IOException(Say("3D 파일을 변환하지 못했습니다.","Could not convert this 3D file.")+
-                        (String.IsNullOrWhiteSpace(error)?"":"\n"+error.Trim()));
+                        (String.IsNullOrWhiteSpace(diagnostics)?"":"\n"+diagnostics.Trim()));
             }
             Publish(stage,main,destination,token);
+            const string skipped="Skipped texture: ";
+            return diagnostics.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries)
+                .Where(line=>line.StartsWith(skipped,StringComparison.Ordinal))
+                .Select(line=>line.Substring(skipped.Length)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         }finally{
             try{Directory.Delete(stage,true);}catch(IOException){}catch(UnauthorizedAccessException){}
         }
@@ -139,14 +144,30 @@ sealed partial class ModelViewer {
         var token=conversionCancel.Token;
         try{
             convertButton.Text=ComponentSetup.Say("변환 중…","Converting…");status.Text=convertButton.Text+" "+Path.GetFileName(destination);
-            conversion=Task.Run(()=>ModelConversion.Convert(path,destination,token));await conversion;
+            var save=Task.Run(()=>ModelConversion.Convert(path,destination,token));
+            conversion=save;
+            var skipped=await save;
             if(!closingAfterConversion){
                 status.Text=ComponentSetup.Say("저장 완료","Saved")+" · "+destination;
-                MessageBox.Show(this,status.Text,ConvertLabel,MessageBoxButtons.OK,MessageBoxIcon.Information);
+                if(skipped.Length==0)MessageBox.Show(this,status.Text,ConvertLabel,MessageBoxButtons.OK,MessageBoxIcon.Information);
+                else ShowSkippedTextures(destination,skipped);
             }
         }catch(OperationCanceledException){if(!closingAfterConversion)status.Text=ComponentSetup.Say("변환을 취소했습니다.","Conversion cancelled.");}
         catch(Exception ex){if(!closingAfterConversion){status.Text=ex.Message;MessageBox.Show(this,ex.Message,ConvertLabel,MessageBoxButtons.OK,MessageBoxIcon.Warning);}}
         finally{conversion=null;conversionCancel.Dispose();conversionCancel=null;if(!closing)convertButton.Text=ConvertLabel;}
+    }
+    void ShowSkippedTextures(string destination,string[] names){
+        using(var dialog=new Form{Text=ConvertLabel,StartPosition=FormStartPosition.CenterParent,MinimizeBox=false,MaximizeBox=false,
+            ShowInTaskbar=false,AutoScaleMode=AutoScaleMode.Dpi,ClientSize=new System.Drawing.Size(540,290),MinimumSize=new System.Drawing.Size(400,225)}){
+            var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(12)};
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(new Label{AutoSize=true,Dock=DockStyle.Fill,Text=ComponentSetup.Say("저장 완료 · 포함하지 못한 텍스처 ","Saved · Skipped textures: ")+names.Length},0,0);
+            layout.Controls.Add(new TextBox{Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,WordWrap=false,ScrollBars=ScrollBars.Both,
+                Text=destination+Environment.NewLine+Environment.NewLine+String.Join(Environment.NewLine,names)},0,1);
+            var ok=new Button{AutoSize=true,Anchor=AnchorStyles.Right,Text=ComponentSetup.Say("확인","OK"),DialogResult=DialogResult.OK};
+            layout.Controls.Add(ok,0,2);dialog.Controls.Add(layout);dialog.AcceptButton=ok;dialog.CancelButton=ok;
+            Ui.Apply(dialog);dialog.HandleCreated+=delegate{ModernUi.TitleBar(dialog);};dialog.ShowDialog(this);
+        }
     }
 }
 }

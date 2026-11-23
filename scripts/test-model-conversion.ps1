@@ -57,11 +57,19 @@ $textureDir=New-Item -ItemType Directory -Path (Join-Path $work 'package\texture
 $external=Join-Path $sourceDir.FullName 'wing.fbx'
 Copy-Item -LiteralPath (Join-Path $root 'tests\fixtures\external-texture.fbx') -Destination $external
 $wing=Join-Path $work 'wing.glb'
-Must-Fail { Convert-Model $external $wing }
+function Read-Glb($file) {
+    $bytes=[IO.File]::ReadAllBytes($file)
+    [Text.Encoding]::UTF8.GetString($bytes,20,[BitConverter]::ToInt32($bytes,12)) | ConvertFrom-Json
+}
+$missing=Join-Path $work 'missing.glb'
+$omitted=@(Convert-Model $external $missing)
+$doc=Read-Glb $missing
+if($omitted.Count -ne 1 -or $omitted[0] -ne 'wing.tga' -or !$doc.meshes.Count -or $doc.images.Count -or
+   $doc.materials[0].pbrMetallicRoughness.baseColorTexture){throw 'Missing map should omit only its bindings and report the name once.'}
 $png='iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DAwPBf4T8ADD0DHqmHNC8AAAAASUVORK5CYII='
 $export=Join-Path $textureDir.FullName 'wing.tga.png'
 [IO.File]::WriteAllBytes($export,[Convert]::FromBase64String($png))
-Convert-Model $external $wing
+if(@(Convert-Model $external $wing).Count){throw 'Unexpected warning for a resolved texture.'}
 $bytes=[IO.File]::ReadAllBytes($wing)
 $jsonLength=[BitConverter]::ToInt32($bytes,12)
 $doc=[Text.Encoding]::UTF8.GetString($bytes,20,$jsonLength) | ConvertFrom-Json
@@ -73,9 +81,43 @@ if($image.mimeType -ne 'image/png' -or $null -eq $image.bufferView -or $image.ur
    [Convert]::ToBase64String($bytes,(28+$jsonLength+$view.byteOffset),$view.byteLength) -ne $png){throw 'GLB did not embed the original exported PNG.'}
 $other=Join-Path $textureDir.FullName 'wing.png'
 Copy-Item -LiteralPath $export -Destination $other
-Must-Fail { Convert-Model $external (Join-Path $work 'ambiguous.glb') }
-if(Test-Path -LiteralPath (Join-Path $work 'ambiguous.glb')){throw 'Published a GLB with ambiguous textures.'}
-Write-Output 'PASS packaged FBX resolves the external PNG, preserves its alpha binding and rejects ambiguous files'
+$ambiguous=Join-Path $work 'ambiguous.glb'
+$omitted=@(Convert-Model $external $ambiguous)
+if($omitted.Count -ne 1 -or $omitted[0] -ne 'wing.tga' -or (Read-Glb $ambiguous).images.Count){throw 'Ambiguous images should be skipped.'}
+Write-Output 'PASS FBX keeps geometry with missing or ambiguous maps and embeds available maps with alpha'
+
+$mixed=Join-Path $sourceDir.FullName 'diffuse.obj'
+Copy-Item -LiteralPath (Join-Path $root 'tests\fixtures\diffuse.obj') -Destination $mixed
+$mtl=Join-Path $sourceDir.FullName 'diffuse.mtl'
+Copy-Item -LiteralPath (Join-Path $root 'tests\fixtures\diffuse.mtl') -Destination $mtl
+Add-Content -LiteralPath $mtl -Encoding Ascii -Value @('map_Kd color.png','map_Ks LM_Final.tga','bump broken.tga')
+[IO.File]::WriteAllBytes((Join-Path $sourceDir.FullName 'broken.tga'),[byte[]](1,2,3))
+[IO.File]::WriteAllBytes((Join-Path $textureDir.FullName 'color.png'),[Convert]::FromBase64String($png))
+$output=Join-Path $work 'mixed.glb'
+$omitted=@(Convert-Model $mixed $output)
+$doc=Read-Glb $output
+if($omitted.Count -ne 2 -or $omitted -notcontains 'LM_Final.tga' -or $omitted -notcontains 'broken.tga' -or
+   $doc.images.Count -ne 1 -or !$doc.meshes.Count -or !($doc.materials | Where-Object { $null -ne $_.pbrMetallicRoughness.baseColorTexture })){
+    throw 'OBJ must preserve its valid color texture and identify missing and unreadable maps.'
+}
+Write-Output 'PASS OBJ keeps the valid map when an unrelated map is missing or cannot be decoded'
+
+$partial=Get-Content -LiteralPath $seed -Raw -Encoding UTF8 | ConvertFrom-Json
+$partial | Add-Member -NotePropertyName images -NotePropertyValue @(@{uri='not-supplied.png'})
+$partial | Add-Member -NotePropertyName textures -NotePropertyValue @(@{source=0})
+$partial.materials[0].pbrMetallicRoughness | Add-Member -NotePropertyName baseColorTexture -NotePropertyValue @{index=0}
+$gltfFile=Join-Path $sourceDir.FullName 'partial.gltf'
+[IO.File]::WriteAllText($gltfFile,($partial | ConvertTo-Json -Depth 24))
+foreach($format in 'glb','fbx','obj'){
+    $file=Join-Path $work ("partial."+$format)
+    $omitted=@(Convert-Model $gltfFile $file)
+    if($omitted.Count -ne 1 -or $omitted[0] -ne 'not-supplied.png'){throw "Missing glTF texture was not reported for $format"}
+    $probe=Join-Path $work ("reopen-partial-"+$format+".gltf")
+    if(@(Convert-Model $file $probe).Count){throw "Dangling texture in $format"}
+    $doc=Get-Content -LiteralPath $probe -Raw -Encoding UTF8 | ConvertFrom-Json
+    if(!$doc.meshes.Count -or $doc.images.Count -or ($format -ne 'obj' -and $doc.animations.Count -ne 2)){throw "Incomplete $format after skipping a glTF texture"}
+}
+Write-Output 'PASS animated glTF with an absent image exports and reopens as GLB, FBX and OBJ'
 $collision=Join-Path $work 'existing.obj'
 $material=[IO.Path]::ChangeExtension($collision,'mtl')
 [IO.File]::WriteAllText($material,'existing material')
