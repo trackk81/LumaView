@@ -62,6 +62,7 @@ static class ExplorerThumbnail {
             slots=extensions.SelectMany(e=>new[]{e,@"SystemFileAssociations\"+e}).ToArray();
         }
         public bool Enabled{get{return Same(Read(keyPath+@"\InProcServer32"),Library)&&slots.All(s=>Same(Read(SlotKey(s)),id));}}
+        public bool RegisteredElsewhere{get{string server=Read(keyPath+@"\InProcServer32");return server!=null&&!Same(server,Library);}}
         public void Apply(bool enable,RegistryChanges edits){
             string server=keyPath+@"\InProcServer32",history=keyPath+@"\Previous";
             if(!enable&&!Same(Read(server),Library))return;
@@ -93,9 +94,36 @@ static class ExplorerThumbnail {
         }
     }
     static readonly Registration images=new Registration("{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}",false,".exr",".psd",".hdr",".tga");
+    static readonly Registration pdfPages=new Registration("{4B64E153-E9B5-409A-A8F7-02D07D6D1BDD}",false,".pdf");
     static readonly Registration models=new Registration("{4B64E151-E9B5-409A-A8F7-02D07D6D1BDD}",false,".obj",".fbx",".stl",".glb");
     static readonly Registration gltf=new Registration("{4B64E152-E9B5-409A-A8F7-02D07D6D1BDD}",true,".gltf");
     public static bool Enabled{get{return images.Enabled;}}
+    public static bool PdfEnabled{get{return pdfPages.Enabled;}}
+    const string SettingsKey=@"Software\LumaView\ExplorerThumbnails";
+    const string PdfPreference="PdfExplorerThumbnails";
+    public static void SetPdfEnabled(bool enable){
+        ChangeRegistrations(enable,delegate(RegistryChanges edits){
+            if(!enable&&pdfPages.RegisteredElsewhere)return;
+            pdfPages.Apply(enable,edits);
+            edits.Write(SettingsKey,PdfPreference,enable?1:0,RegistryValueKind.DWord);
+        });
+    }
+    internal static void UnregisterPdf(){SetRegistrations(false,pdfPages);}
+    static bool ShouldAddPdf(){
+        if(!images.Enabled||Registry.GetValue(@"HKEY_CURRENT_USER\"+SettingsKey,PdfPreference,null)!=null)return false;
+        foreach(string slot in new[]{".pdf",@"SystemFileAssociations\.pdf"}){
+            using(var key=Registry.ClassesRoot.OpenSubKey(slot+Handler))if(key!=null&&key.GetValue("")!=null)return false;
+        }
+        return true;
+    }
+    internal static void UpgradePdfThumbnails(){
+        if(!ShouldAddPdf())return;
+        ChangeRegistrations(true,delegate(RegistryChanges edits){
+            if(!ShouldAddPdf())return;
+            pdfPages.Apply(true,edits);
+            edits.Write(SettingsKey,PdfPreference,1,RegistryValueKind.DWord);
+        });
+    }
     public static bool ModelsEnabled{get{return models.Enabled&&gltf.Enabled;}}
     public static void SetEnabled(bool enable){SetRegistrations(enable,images);}
     public static void SetModelsEnabled(bool enable){
@@ -104,13 +132,16 @@ static class ExplorerThumbnail {
     }
     [DllImport("shell32.dll")] static extern void SHChangeNotify(uint eventId,uint flags,IntPtr first,IntPtr second);
     static void SetRegistrations(bool enable,params Registration[] registrations){
+        ChangeRegistrations(enable,delegate(RegistryChanges edits){foreach(var registration in registrations)registration.Apply(enable,edits);});
+    }
+    static void ChangeRegistrations(bool enable,Action<RegistryChanges> change){
         if(enable&&!File.Exists(Library))throw new FileNotFoundException("DollView.Thumbnail.dll",Library);
         using(var guard=new Mutex(false,@"Local\DollView.ExplorerThumbnailRegistration")){
             try{if(!guard.WaitOne(TimeSpan.FromSeconds(10)))throw new IOException("DollView thumbnail registration is busy.");}
             catch(AbandonedMutexException){}
             try{
                 var edits=new RegistryChanges();
-                try{foreach(var registration in registrations)registration.Apply(enable,edits);}
+                try{change(edits);}
                 catch{edits.Rollback();throw;}
                 finally{edits.Clean();}
             }finally{guard.ReleaseMutex();SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);}
@@ -151,7 +182,16 @@ static class ExplorerThumbnail {
     }
 
     // This mode runs in its own process, with no viewer window or settings initialization.
-    internal static int Decode(string size){
+    static Bitmap DecodeImage(Func<Stream> open,string name,int side){
+        string ext;
+        using(var source=open())using(var reader=new BinaryReader(source)){
+            uint signature=reader.ReadUInt32();
+            ext=signature==20000630?".exr":signature==0x53504238?".psd":(signature&0xffff)==0x3f23?".hdr":".tga";
+        }
+        string hint=Path.GetFileNameWithoutExtension(name)+ext;
+        return (ext==".psd"?PsdDecoder.TryDecodeThumbnail(open):null)??ExtendedDecoder.DecodeSource(hint,side,side,open);
+    }
+    internal static int Decode(string size,bool pdf){
         try{
             int side;if(!Int32.TryParse(size,out side)||side<1||side>1024)return 1;
             using(var input=new BinaryReader(Console.OpenStandardInput()))
@@ -160,14 +200,8 @@ static class ExplorerThumbnail {
                 if(length<4||chars<0||chars>260)return 1;
                 string name=Encoding.Unicode.GetString(input.ReadBytes(chars*2));
                 Func<Stream> open=()=>new BufferedStream(new ShellStream(input,output,length),64*1024);
-                string ext;
-                using(var source=open())using(var reader=new BinaryReader(source)){
-                    uint signature=reader.ReadUInt32();
-                    ext=signature==20000630?".exr":signature==0x53504238?".psd":
-                        (signature&0xffff)==0x3f23?".hdr":".tga";
-                }
-                string hint=Path.GetFileNameWithoutExtension(name)+ext;
-                using(var bitmap=(ext==".psd"?PsdDecoder.TryDecodeThumbnail(open):null)??ExtendedDecoder.DecodeSource(hint,side,side,open)){
+                using(var pdfStream=pdf?open():null)
+                using(var bitmap=pdf?PdfPages.FirstPageThumbnail(pdfStream,side):DecodeImage(open,name,side)){
                     double factor=Math.Min(1,Math.Min((double)side/bitmap.Width,(double)side/bitmap.Height));
                     int width=Math.Max(1,(int)Math.Round(bitmap.Width*factor)),height=Math.Max(1,(int)Math.Round(bitmap.Height*factor));
                     using(var image=new Bitmap(width,height,PixelFormat.Format32bppPArgb)){

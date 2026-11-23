@@ -12,6 +12,8 @@ FBX·GLB·glTF·OBJ·STL은 **설정 → 파일 연결 → Windows 탐색기 3D 
 
 Windows 탐색기에서 DollView에 연결된 이미지의 미리보기 오른쪽 아래에 DollView 로고가 표시됩니다. 3D 모델에는 로고 위에 **3D**가 함께 표시됩니다.
 
+PDF는 Windows 탐색기의 큰 아이콘 보기에서 첫 페이지를 썸네일로 표시합니다. **설정 → 파일 연결 → Windows 탐색기 PDF 첫 페이지 썸네일**에서 켜거나 끌 수 있습니다. DollView에 연결한 PDF는 미리보기 오른쪽 아래 배지와 작은 파일 아이콘에 **PDF** 글자가 표시됩니다.
+
 - **설치판**은 `DollView-Setup-<버전>-x64.exe`입니다. 설치 중 파일 형식 묶음에서 **이미지와 PDF**, **영상만**, **이미지, PDF와 영상**, **3D 모델만** 또는 **모든 형식**을 고를 수 있습니다. 일부 확장자를 제외하거나 **모두 해제**한 후 설치할 수도 있습니다.
 - **휴대용**은 `DollView-<버전>-win-x64.zip`입니다. 압축을 모두 풀고 안에 있는 `DollView.exe`를 실행하세요. 두 배포본 모두 앱의 **업데이트** 버튼을 사용할 수 있습니다. [GitHub 배포 페이지](https://github.com/trackk81/LumaView/releases/latest)
 

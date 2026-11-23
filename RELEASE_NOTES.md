@@ -1,9 +1,9 @@
-# DollView 0.2.33
+# DollView 0.2.34
 
-- PDF를 열면 오른쪽 사이드바에 페이지 미리보기가 펼쳐집니다. 휠을 내려 마지막 페이지를 지나면 같은 폴더의 다음 이미지나 영상으로 이어지고, 반대로 돌아오면 PDF의 마지막 페이지가 열립니다.
-- **SQ 묶기**를 켜면 탐색기에서는 이미지 시퀀스가 한 항목으로 보이고, 열면 사이드바에 개별 프레임이 펼쳐집니다.
-- 탐색기와 뷰어의 창 모드·전체화면에서 상단 **프린터 아이콘**이나 **Ctrl+P**로 인쇄할 수 있습니다. PDF는 전체·현재 페이지·범위를 선택할 수 있습니다. 시퀀스는 탐색기에서 묶음이나 범위를, 뷰어에서는 현재 프레임을 인쇄합니다.
+- Windows 탐색기의 큰 아이콘 보기에서 PDF 첫 페이지를 미리 볼 수 있습니다.
+- DollView에 연결한 PDF는 썸네일 오른쪽 아래의 DollView 배지와 작은 파일 아이콘에 **PDF** 글자가 표시됩니다.
+- 설치할 때 PDF 미리보기를 선택할 수 있습니다. 설치 후에는 **설정 → 파일 연결 → Windows 탐색기 PDF 첫 페이지 썸네일**에서 켜거나 끌 수 있습니다.
 
-Windows x64용 설치 파일은 `DollView-Setup-0.2.33-x64.exe`, 휴대용은 `DollView-0.2.33-win-x64.zip`입니다. 기존 사용자는 앱에서 **업데이트**를 누르면 됩니다.
+Windows x64용 설치 파일은 `DollView-Setup-0.2.34-x64.exe`, 휴대용은 `DollView-0.2.34-win-x64.zip`입니다. 기존 사용자는 DollView에서 **업데이트**를 누르면 됩니다.
 
-개인과 기업 모두 업무용으로 무료로 사용할 수 있습니다. [무료 사용 라이선스](https://github.com/trackk81/LumaView/blob/v0.2.33/LICENSE.txt) · [동봉한 코덱의 소스 및 빌드 자료](https://github.com/trackk81/LumaView/releases/tag/v0.2.30)
+개인과 기업 모두 업무용으로 무료로 사용할 수 있습니다. [무료 사용 라이선스](https://github.com/trackk81/LumaView/blob/v0.2.34/LICENSE.txt) · [동봉한 코덱의 소스 및 빌드 자료](https://github.com/trackk81/LumaView/releases/tag/v0.2.30)

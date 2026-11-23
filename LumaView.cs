@@ -10,7 +10,9 @@ using System.Runtime.InteropServices;
 namespace LumaView {
 static class Program {
     [STAThread] static void Main(string[] args) {
-        if(args.Length==2 && args[0]=="--explorer-thumbnail"){Environment.ExitCode=ExplorerThumbnail.Decode(args[1]);return;}
+        if(args.Length==2&&(args[0]=="--explorer-thumbnail"||args[0]=="--explorer-pdf-thumbnail")){
+            Environment.ExitCode=ExplorerThumbnail.Decode(args[1],args[0]=="--explorer-pdf-thumbnail");return;
+        }
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         if (args.Length > 0 && args[0] == "--self-test") { Tests.Run(); return; }
         Ui.Load();
@@ -24,7 +26,7 @@ static class Program {
             viewer.Shown+=delegate{System.Threading.Tasks.Task.Run(()=>{
                 string executable=Application.ExecutablePath;
                 UpdateFiles.RemoveLegacyLaunchers(executable,FileAssociations.MigrateLegacyCommand);
-                try{FileAssociations.RefreshThumbnailOverlays(executable);}
+                try{FileAssociations.RefreshThumbnailOverlays(executable);ExplorerThumbnail.UpgradePdfThumbnails();}
                 catch(UnauthorizedAccessException){}
                 catch(System.Security.SecurityException){}
                 catch(IOException){}

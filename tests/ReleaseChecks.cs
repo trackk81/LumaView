@@ -20,10 +20,23 @@ static void Associations(){
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().OrderBy(x=>x).SequenceEqual(new[]{".jpg",".png"}),"installer passes selected types to Windows settings");
    Call("FileAssociations","PrepareSelectedTypes",new object[]{new[]{".png"}});
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\LumaView\SelectedCapabilities\FileAssociations"))Check(key.GetValueNames().SequenceEqual(new[]{".png"}),"Windows defaults page contains only chosen extensions");
-   Call("FileAssociations","Register",new object[]{new[]{".glb",".mp4"}});
+   Call("FileAssociations","Register",new object[]{new[]{".glb",".mp4",".pdf"}});
    const string classes=@"Software\Classes\LumaView.File";
    string logo="\""+Application.ExecutablePath+"\",0";
    string modelLogo="\""+Path.Combine(Application.StartupPath,"assets","DollView-3D.ico")+"\",0";
+   string pdfLogo="\""+Path.Combine(Application.StartupPath,"assets","DollView-PDF.ico")+"\",0";
+   using(var key=Registry.CurrentUser.OpenSubKey(classes+".pdf",true))
+   using(var icon=key.OpenSubKey("DefaultIcon",true)){
+    Check(pdfLogo.Equals(key.GetValue("TypeOverlay"))&&pdfLogo.Equals(icon.GetValue("")),"PDF thumbnail badge and small icon use the PDF label");
+    icon.SetValue("",logo); // An upgrade must repair this even if TypeOverlay is already current.
+   }
+   const string slot=@"Software\Classes\.pdf\ShellEx\{E357FCCD-A995-4576-B01F-234630154E96}";
+   using(var prior=Registry.CurrentUser.CreateSubKey(slot))prior.SetValue("","Previous.Pdf.Provider");
+   Call("ExplorerThumbnail","SetPdfEnabled",true);
+   Call("ExplorerThumbnail","SetPdfEnabled",true);
+   using(var key=Registry.CurrentUser.OpenSubKey(slot))Check(key.GetValue("").Equals("{4B64E153-E9B5-409A-A8F7-02D07D6D1BDD}"),"register PDF thumbnails independently");
+   Call("ExplorerThumbnail","SetPdfEnabled",false);
+   using(var key=Registry.CurrentUser.OpenSubKey(slot))Check(key.GetValue("").Equals("Previous.Pdf.Provider"),"restore previous PDF thumbnail provider");
    using(var key=Registry.CurrentUser.OpenSubKey(classes+".png",true)){
     Check(logo.Equals(key.GetValue("TypeOverlay")),"image thumbnails use the application logo");
     key.DeleteValue("TypeOverlay");
@@ -33,6 +46,7 @@ static void Associations(){
    Call("FileAssociations","RefreshThumbnailOverlays",@"C:\Other\DollView.exe");
    using(var key=Registry.CurrentUser.OpenSubKey(classes+".png"))Check(key.GetValue("TypeOverlay")==null,"another copy leaves existing registration alone");
    Call("FileAssociations","RefreshThumbnailOverlays",Application.ExecutablePath);
+   using(var icon=Registry.CurrentUser.OpenSubKey(classes+@".pdf\DefaultIcon"))Check(pdfLogo.Equals(icon.GetValue("")),"upgrade existing PDF small icon");
    using(var key=Registry.CurrentUser.OpenSubKey(classes+".png"))Check(logo.Equals(key.GetValue("TypeOverlay")),"upgrade fills existing thumbnail registration");
    using(var key=Registry.CurrentUser.OpenSubKey(@"Software\Classes\SystemFileAssociations\image"))Check(key==null,"image-wide overlay settings stay untouched");
    Call("FileAssociations","UnregisterOwned");

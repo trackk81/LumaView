@@ -17,7 +17,8 @@ using Microsoft::WRL::ComPtr;
 static const CLSID providerId={0x4b64e150,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
 static const CLSID modelId={0x4b64e151,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
 static const CLSID gltfId={0x4b64e152,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
-enum class Kind { Image, Model, Gltf };
+static const CLSID pdfId={0x4b64e153,0xe9b5,0x409a,{0xa8,0xf7,0x02,0xd0,0x7d,0x6d,0x1b,0xdd}};
+enum class Kind { Image, Model, Gltf, Pdf };
 static HINSTANCE module;
 static LONG objects;
 
@@ -82,8 +83,10 @@ static HRESULT render(IStream* stream,Kind kind,const std::wstring& origin,UINT 
     if(!size||size>=ARRAYSIZE(location))return E_FAIL;
     std::wstring directory(location,size);
     directory.resize(directory.find_last_of(L'\\'));
-    std::wstring exe=directory+(kind==Kind::Image?L"\\DollView.exe":L"\\model-converter\\DollView.Convert.exe");
-    std::wstring command=L"\""+exe+(kind==Kind::Image?L"\" --explorer-thumbnail ":L"\" --thumbnail-stream ")+std::to_wstring(side);
+    bool model=kind==Kind::Model||kind==Kind::Gltf;
+    std::wstring exe=directory+(model?L"\\model-converter\\DollView.Convert.exe":L"\\DollView.exe");
+    const wchar_t* option=model?L" --thumbnail-stream ":kind==Kind::Pdf?L" --explorer-pdf-thumbnail ":L" --explorer-thumbnail ";
+    std::wstring command=L"\""+exe+L"\""+option+std::to_wstring(side);
 
     SECURITY_ATTRIBUTES security={sizeof(security),nullptr,TRUE};
     Handle childIn,input,output,childOut,errors,job,process,thread;
@@ -215,8 +218,8 @@ public:
 };
 STDAPI DllGetClassObject(REFCLSID cls,REFIID id,void** out){
     if(!out)return E_POINTER;*out=nullptr;
-    if(cls!=providerId&&cls!=modelId&&cls!=gltfId)return CLASS_E_CLASSNOTAVAILABLE;
-    Kind kind=cls==providerId?Kind::Image:cls==gltfId?Kind::Gltf:Kind::Model;
+    if(cls!=providerId&&cls!=modelId&&cls!=gltfId&&cls!=pdfId)return CLASS_E_CLASSNOTAVAILABLE;
+    Kind kind=cls==providerId?Kind::Image:cls==gltfId?Kind::Gltf:cls==pdfId?Kind::Pdf:Kind::Model;
     auto factory=new(std::nothrow) Factory(kind);if(!factory)return E_OUTOFMEMORY;
     HRESULT hr=factory->QueryInterface(id,out);factory->Release();return hr;
 }

@@ -39,6 +39,12 @@ static class PdfPages {
         }catch{input.Dispose();throw;}
     }
     public static int Count(string path){lock(gate)return checked((int)Open(path).PageCount);}
+    internal static Bitmap FirstPageThumbnail(Stream sourceStream,int side){
+        using(var input=sourceStream.AsRandomAccessStream()){
+            var pdf=PdfDocument.LoadFromStreamAsync(input).AsTask().GetAwaiter().GetResult();
+            return RenderPage(pdf,0,side);
+        }
+    }
     public static Bitmap Render(string path,int pageIndex,int maxSide){
         int count;
         return Render(path,pageIndex,maxSide,out count);
@@ -47,17 +53,20 @@ static class PdfPages {
         lock(gate){
             var pdf=Open(path);count=checked((int)pdf.PageCount);
             int index=pageIndex<0?count-1:Math.Min(pageIndex,count-1);
-            using(var page=pdf.GetPage((uint)index))
-            using(var output=new InMemoryRandomAccessStream()){
-                double w=page.Size.Width,h=page.Size.Height;
-                double scale=Math.Min(4,maxSide/Math.Max(w,h));
-                var options=new PdfPageRenderOptions{DestinationWidth=(uint)Math.Max(1,Math.Round(w*scale)),DestinationHeight=(uint)Math.Max(1,Math.Round(h*scale))};
-                page.RenderToStreamAsync(output,options).AsTask().GetAwaiter().GetResult();
-                output.Seek(0);
-                using(var stream=output.AsStreamForRead())
-                using(var decoded=Image.FromStream(stream)){
-                    return new Bitmap(decoded);
-                }
+            return RenderPage(pdf,index,maxSide);
+        }
+    }
+    static Bitmap RenderPage(PdfDocument pdf,int index,int maxSide){
+        using(var page=pdf.GetPage((uint)index))
+        using(var output=new InMemoryRandomAccessStream()){
+            double w=page.Size.Width,h=page.Size.Height;
+            double scale=Math.Min(4,maxSide/Math.Max(w,h));
+            var options=new PdfPageRenderOptions{DestinationWidth=(uint)Math.Max(1,Math.Round(w*scale)),DestinationHeight=(uint)Math.Max(1,Math.Round(h*scale))};
+            page.RenderToStreamAsync(output,options).AsTask().GetAwaiter().GetResult();
+            output.Seek(0);
+            using(var stream=output.AsStreamForRead())
+            using(var decoded=Image.FromStream(stream)){
+                return new Bitmap(decoded);
             }
         }
     }

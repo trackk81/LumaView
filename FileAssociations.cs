@@ -19,6 +19,8 @@ static class FileAssociations {
     public static string OpenCommand(string executable){return "\""+executable+"\" \"%1\"";}
     static string ThumbnailOverlay(string executable,string extension){
         string file="file"+extension;
+        if(PdfPages.IsPdf(file))
+            return "\""+Path.Combine(Path.GetDirectoryName(executable),"assets","DollView-PDF.ico")+"\",0";
         if(ModelFiles.Supported(file))
             return "\""+Path.Combine(Path.GetDirectoryName(executable),"assets","DollView-3D.ico")+"\",0";
         return Album.Supported(file)?"\""+executable+"\",0":null;
@@ -32,12 +34,18 @@ static class FileAssociations {
             if(overlay==null)continue;
             string path=@"Software\Classes\LumaView.File"+extension;
             using(var key=Registry.CurrentUser.OpenSubKey(path,true)){
-                if(key==null||String.Equals(key.GetValue("TypeOverlay") as string,overlay,StringComparison.OrdinalIgnoreCase))continue;
+                if(key==null)continue;
                 using(var command=key.OpenSubKey(@"shell\open\command")){
                     if(command==null||!String.Equals(command.GetValue("") as string,OpenCommand(executable),StringComparison.OrdinalIgnoreCase))continue;
                 }
-                key.SetValue("TypeOverlay",overlay);
-                changed=true;
+                if(!String.Equals(key.GetValue("TypeOverlay") as string,overlay,StringComparison.OrdinalIgnoreCase)){
+                    key.SetValue("TypeOverlay",overlay);changed=true;
+                }
+                if(extension==".pdf")using(var icon=key.CreateSubKey("DefaultIcon")){
+                    if(!String.Equals(icon.GetValue("") as string,overlay,StringComparison.OrdinalIgnoreCase)){
+                        icon.SetValue("",overlay);changed=true;
+                    }
+                }
             }
         }
         if(changed)SHChangeNotify(0x08000000,0,IntPtr.Zero,IntPtr.Zero);
@@ -73,7 +81,7 @@ static class FileAssociations {
                 prog.SetValue("","DollView "+extension.ToUpperInvariant()+" file");
                 string overlay=ThumbnailOverlay(executable,extension);
                 if(overlay!=null)prog.SetValue("TypeOverlay",overlay);
-                using(var icon=prog.CreateSubKey("DefaultIcon"))icon.SetValue("","\""+iconPath+"\",0");
+                using(var icon=prog.CreateSubKey("DefaultIcon"))icon.SetValue("",extension==".pdf"?overlay:"\""+iconPath+"\",0");
                 using(var command=prog.CreateSubKey(@"shell\open\command"))command.SetValue("",OpenCommand(executable));
             }
             using(var associations=Registry.CurrentUser.CreateSubKey(Capabilities+@"\FileAssociations"))associations.SetValue(extension,progId);
@@ -105,6 +113,13 @@ static class FileAssociations {
     }
     public static void OpenSelectedDefaults(string[] extensions){Process.Start(new ProcessStartInfo(PrepareSelectedTypes(extensions)){UseShellExecute=true});}
     public static bool HandleInstallerCommand(string[] args){
+        if(args.Length==1&&(args[0]=="--enable-pdf-thumbnails"||args[0]=="--disable-pdf-thumbnails"||args[0]=="--unregister-pdf-thumbnails")){
+            try{
+                if(args[0]=="--unregister-pdf-thumbnails")ExplorerThumbnail.UnregisterPdf();
+                else ExplorerThumbnail.SetPdfEnabled(args[0]=="--enable-pdf-thumbnails");
+            }catch(Exception ex){Console.Error.WriteLine(ex.Message);Environment.ExitCode=1;}
+            return true;
+        }
         if(args.Length==1&&(args[0]=="--enable-model-thumbnails"||args[0]=="--disable-model-thumbnails")){
             try{ExplorerThumbnail.SetModelsEnabled(args[0]=="--enable-model-thumbnails");}
             catch(Exception ex){Console.Error.WriteLine(ex.Message);Environment.ExitCode=1;}
@@ -168,6 +183,7 @@ sealed class AssociationSettings:UserControl {
         Dock=DockStyle.Fill;
         var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
         content.Controls.Add(ThumbnailOption("explorerThumbnails",ComponentSetup.Say("Windows 탐색기 썸네일 (EXR, PSD, HDR, TGA)","Windows Explorer thumbnails (EXR, PSD, HDR, TGA)"),()=>ExplorerThumbnail.Enabled,ExplorerThumbnail.SetEnabled));
+        content.Controls.Add(ThumbnailOption("pdfThumbnails",ComponentSetup.Say("Windows 탐색기 PDF 첫 페이지 썸네일","Windows Explorer PDF first-page thumbnails"),()=>ExplorerThumbnail.PdfEnabled,ExplorerThumbnail.SetPdfEnabled));
         content.Controls.Add(ThumbnailOption("modelThumbnails",ComponentSetup.Say("Windows 탐색기 3D 모델 썸네일","Windows Explorer 3D model thumbnails"),()=>ExplorerThumbnail.ModelsEnabled,ExplorerThumbnail.SetModelsEnabled));
         content.Controls.Add(ModernUi.Text(ComponentSetup.Say("묶음을 고르거나 아래에서 확장자를 조정하세요. 연결을 누르면 Windows 기본 앱 설정이 열립니다.","Choose a group or adjust individual extensions below. Click Connect to open Windows default app settings."),true));
         list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
