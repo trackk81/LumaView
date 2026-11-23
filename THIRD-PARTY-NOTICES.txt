@@ -1,6 +1,6 @@
 LumaView third-party components
 
-ImageMagick 7.1.2-35, Q16 x64 static distribution
+ImageMagick 7.1.2-35, Q16-HDRI x64 static distribution
 https://imagemagick.org/
 License and delegate notices: codecs/LICENSE.txt and codecs/NOTICE.txt.
 The executable is distributed unmodified, including the bundled configuration.
@@ -53,3 +53,6 @@ The source and pinned build recipe are in model-converter in the source reposito
 The included FFmpeg build enables GPL/version3 components; see
 licenses/ffmpeg-COPYING.GPLv3.txt and the pinned upstream build recipe in SOURCE.json.
 FFmpeg source revision: https://github.com/FFmpeg/FFmpeg/tree/cd4e96eb3
+
+Codec source downloads, build guides, and checksums for DollView 0.2.30:
+https://github.com/trackk81/LumaView/releases/tag/v0.2.30

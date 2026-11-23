@@ -88,4 +88,6 @@ Windows PowerShell과 Windows의 .NET Framework C# 컴파일러를 사용합니�
 
 ## 라이선스
 
-LumaView 자체 소스의 공개 라이선스는 아직 지정하지 않았습니다. 공개 라이선스를 부여하려면 배포 전에 소유자가 결정해야 합니다. 포함된 제3자 구성 요소에는 각자의 라이선스가 적용됩니다. `THIRD-PARTY-NOTICES.txt`와 `licenses/`를 확인하세요.
+DollView는 v0.2.30부터 개인과 기업 모두 무료로 설치하고 사용할 수 있습니다. 사내 업무와 고객을 위한 상업 작업도 포함됩니다. [무료 사용 라이선스](LICENSE.txt)
+
+동봉한 코덱과 라이브러리에는 각각의 라이선스가 적용됩니다. [제3자 소프트웨어 고지](THIRD-PARTY-NOTICES.txt) · [v0.2.30 코덱 소스 및 빌드 자료](https://github.com/trackk81/LumaView/releases/tag/v0.2.30)

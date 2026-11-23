@@ -8,7 +8,7 @@ $payload = Join-Path $dist ("payload-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $payload | Out-Null
 & (Join-Path $root 'build.ps1') -OutputDirectory $payload -IncludeLegacyLauncher:(!$CleanPortable)
 Remove-Item -LiteralPath (Join-Path $payload 'AssemblyInfo.generated.cs')
-$files = @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','README.md','THIRD-PARTY-NOTICES.txt','VERSION')
+$files = @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','README.md','LICENSE.txt','THIRD-PARTY-NOTICES.txt','VERSION')
 foreach ($name in $files) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $payload }
 foreach ($name in @('assets','codecs','licenses')) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $payload -Recurse }
 $converterTarget=New-Item -ItemType Directory -Path (Join-Path $payload 'model-converter')
