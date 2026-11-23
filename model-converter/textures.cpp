@@ -1,5 +1,7 @@
 #include <assimp/material.h>
+#include <assimp/GltfMaterial.h>
 #include <assimp/scene.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -15,6 +17,84 @@
 #include "vendor/stb_image_write.h"
 
 namespace fs = std::filesystem;
+
+static bool packageImage(const fs::path& path,const fs::path& directory) {
+    std::error_code ec;
+    if(!fs::is_regular_file(path,ec))return false;
+    auto real=fs::canonical(path,ec);
+    if(ec)return false;
+    auto part=real.begin();
+    for(const auto& parent:directory){
+        if(part==real.end()||_wcsicmp(parent.c_str(),part->c_str())!=0)return false;
+        ++part;
+    }
+    return part!=real.end();
+}
+
+static fs::path exportedFbxTexture(const fs::path& model,const fs::path& reference) {
+    const auto root=model.parent_path();
+    const auto sibling=root.parent_path()/L"textures";
+    const auto name=reference.filename();
+    if(name.empty()||name.native().find_first_of(L"<>:\"|?*")!=std::wstring::npos)return {};
+    std::vector<fs::path> local;
+    if(reference.has_parent_path()&&!reference.has_root_path()&&std::find(reference.begin(),reference.end(),L"..")==reference.end())
+        local.push_back(root/reference);
+    local.insert(local.end(),{root/name,root/L"textures"/name,root/(model.stem().wstring()+L".fbm")/name,sibling/name});
+    const auto ext=name.extension().wstring();
+    const bool editable=!_wcsicmp(ext.c_str(),L".tga")||!_wcsicmp(ext.c_str(),L".psd")||!_wcsicmp(ext.c_str(),L".psb");
+    for(const auto& candidate:local){
+        const auto& directory=candidate.parent_path()==sibling?sibling:root;
+        if(packageImage(candidate,directory))return candidate;
+        if(!editable)continue;
+        fs::path match;
+        for(const auto* suffix:{L".png",L".jpg",L".jpeg"}){
+            for(const auto& alternate:{fs::path(candidate).replace_extension(suffix),fs::path(candidate).concat(suffix)}){
+                if(!packageImage(alternate,directory))continue;
+                if(!match.empty())throw std::runtime_error("Ambiguous texture: "+reference.u8string());
+                match=alternate;
+            }
+        }
+        if(!match.empty())return match;
+    }
+    return {};
+}
+
+// Relink before Assimp embeds the files so the images keep their actual encoding.
+void relinkFbxTextures(const aiScene& scene,const fs::path& source,bool gltf) {
+    const auto model=fs::canonical(source);
+    for(unsigned m=0;m<scene.mNumMaterials;m++){
+        auto* material=scene.mMaterials[m];
+        for(unsigned i=0;i<material->mNumProperties;i++){
+            auto* prop=material->mProperties[i];
+            if(prop->mKey!=aiString("$tex.file"))continue;
+            auto type=static_cast<aiTextureType>(prop->mSemantic);
+            aiString reference;
+            if(material->GetTexture(type,prop->mIndex,&reference)!=AI_SUCCESS||reference.data[0]=='*')continue;
+            aiString replacement;
+            auto embedded=scene.GetEmbeddedTextureAndIndex(reference.C_Str());
+            if(embedded.first)replacement.Set("*"+std::to_string(embedded.second));
+            else{
+                auto path=fs::u8path(reference.C_Str());
+                std::error_code ec;
+                if(fs::is_regular_file(path.is_absolute()?path:model.parent_path()/path,ec))continue;
+                auto match=exportedFbxTexture(model,path);
+                if(match.empty())continue;
+                auto filename=match.u8string();
+                if(filename.size()>=sizeof(replacement.data))throw std::runtime_error("Texture path too long: "+filename);
+                replacement.Set(filename);
+            }
+            material->AddProperty(&replacement,AI_MATKEY_TEXTURE(type,prop->mIndex));
+        }
+        // glTF consumes opacity from base-color alpha when the FBX uses the same atlas for both.
+        aiString color,opacity;
+        if(gltf&&material->GetTexture(aiTextureType_DIFFUSE,0,&color)==AI_SUCCESS&&
+           material->GetTexture(aiTextureType_OPACITY,0,&opacity)==AI_SUCCESS&&
+           !_wcsicmp(fs::u8path(color.C_Str()).c_str(),fs::u8path(opacity.C_Str()).c_str())){
+            aiString blend("BLEND");
+            material->AddProperty(&blend,AI_MATKEY_GLTF_ALPHAMODE);
+        }
+    }
+}
 
 static void appendBytes(void* context,void* data,int size) {
     auto& bytes=*static_cast<std::vector<unsigned char>*>(context);

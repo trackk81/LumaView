@@ -52,6 +52,30 @@ foreach ($from in $formats) {
         Write-Output "PASS $from -> $to"
     }
 }
+$sourceDir=New-Item -ItemType Directory -Path (Join-Path $work 'package\source') -Force
+$textureDir=New-Item -ItemType Directory -Path (Join-Path $work 'package\textures') -Force
+$external=Join-Path $sourceDir.FullName 'wing.fbx'
+Copy-Item -LiteralPath (Join-Path $root 'tests\fixtures\external-texture.fbx') -Destination $external
+$wing=Join-Path $work 'wing.glb'
+Must-Fail { Convert-Model $external $wing }
+$png='iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DAwPBf4T8ADD0DHqmHNC8AAAAASUVORK5CYII='
+$export=Join-Path $textureDir.FullName 'wing.tga.png'
+[IO.File]::WriteAllBytes($export,[Convert]::FromBase64String($png))
+Convert-Model $external $wing
+$bytes=[IO.File]::ReadAllBytes($wing)
+$jsonLength=[BitConverter]::ToInt32($bytes,12)
+$doc=[Text.Encoding]::UTF8.GetString($bytes,20,$jsonLength) | ConvertFrom-Json
+$mat=$doc.materials[0]
+if($null -eq $mat.pbrMetallicRoughness.baseColorTexture -or $mat.alphaMode -ne 'BLEND'){throw 'Lost FBX color or opacity binding.'}
+$image=$doc.images[$doc.textures[$mat.pbrMetallicRoughness.baseColorTexture.index].source]
+$view=$doc.bufferViews[$image.bufferView]
+if($image.mimeType -ne 'image/png' -or $null -eq $image.bufferView -or $image.uri -or
+   [Convert]::ToBase64String($bytes,(28+$jsonLength+$view.byteOffset),$view.byteLength) -ne $png){throw 'GLB did not embed the original exported PNG.'}
+$other=Join-Path $textureDir.FullName 'wing.png'
+Copy-Item -LiteralPath $export -Destination $other
+Must-Fail { Convert-Model $external (Join-Path $work 'ambiguous.glb') }
+if(Test-Path -LiteralPath (Join-Path $work 'ambiguous.glb')){throw 'Published a GLB with ambiguous textures.'}
+Write-Output 'PASS packaged FBX resolves the external PNG, preserves its alpha binding and rejects ambiguous files'
 $collision=Join-Path $work 'existing.obj'
 $material=[IO.Path]::ChangeExtension($collision,'mtl')
 [IO.File]::WriteAllText($material,'existing material')

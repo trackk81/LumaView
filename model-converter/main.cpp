@@ -12,6 +12,7 @@
 namespace fs = std::filesystem;
 
 void prepareTextures(aiScene&,const fs::path&,const std::string&);
+void relinkFbxTextures(const aiScene&,const fs::path&,bool);
 int thumbnail(int argc,wchar_t** argv);
 
 static void convert(const fs::path& source,const fs::path& output) {
@@ -25,12 +26,18 @@ static void convert(const fs::path& source,const fs::path& output) {
     else throw std::runtime_error("Unsupported output format.");
     if(fs::exists(output))throw std::runtime_error("Destination exists.");
     Assimp::Importer reader;
-    if(!reader.ReadFile(source.u8string(),aiProcess_Triangulate|(format=="stlb"?0:aiProcess_EmbedTextures)))
+    const auto imported=reader.ReadFile(source.u8string(),aiProcess_Triangulate);
+    if(!imported)
         throw std::runtime_error(reader.GetErrorString());
+    const bool fbx=_wcsicmp(source.extension().c_str(),L".fbx")==0;
+    if(format!="stlb"){
+        if(fbx)relinkFbxTextures(*imported,source,format=="glb2"||format=="gltf2");
+        if(!reader.ApplyPostProcessing(aiProcess_EmbedTextures))throw std::runtime_error(reader.GetErrorString());
+    }
     std::unique_ptr<aiScene> scene(reader.GetOrphanedScene());
     if(!scene->HasMeshes()||!scene->mRootNode)throw std::runtime_error("The source contains no meshes.");
     if(format!="stlb")prepareTextures(*scene,output,format);
-    if(_wcsicmp(source.extension().c_str(),L".fbx")==0){
+    if(fbx){
         // The FBX importer puts the original basis and cm/unit on the root.
         aiMatrix4x4 meters;aiMatrix4x4::Scaling(aiVector3D(.01f),meters);
         scene->mRootNode->mTransformation=meters*scene->mRootNode->mTransformation;
