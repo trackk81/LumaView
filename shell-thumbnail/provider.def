@@ -1,0 +1,4 @@
+LIBRARY "DollView.Thumbnail.dll"
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

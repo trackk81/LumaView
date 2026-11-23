@@ -20,13 +20,14 @@ foreach ($name in @('WindowsBase','PresentationCore','PresentationFramework','Wi
 }
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.Core.dll'
 $references += Join-Path $PSScriptRoot 'Microsoft.Web.WebView2.WinForms.dll'
-$names = @('LumaView','ExtendedDecoder','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','WheelSidebar','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','Shortcuts','AppSettings','FileAssociations','ModelViewer','ModelConversion','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
+$names = @('LumaView','ExtendedDecoder','ExplorerThumbnail','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','WheelSidebar','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','Shortcuts','AppSettings','FileAssociations','ModelViewer','ModelConversion','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
 $arguments = @('/nologo',"/target:$Target",'/platform:x64','/optimize+',"/out:$outputRoot\DollView.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico")
 $arguments += $references | ForEach-Object { "/reference:$_" }
 $arguments += $names | ForEach-Object { Join-Path $PSScriptRoot "$_.cs" }
 $arguments += $versionFile
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'shell-thumbnail\DollView.Thumbnail.dll') -Destination $outputRoot -Force
 Write-Output "Built DollView $version -> $outputRoot\DollView.exe"
 
 $workerArguments=@('/nologo','/target:winexe','/platform:x64','/optimize+',"/out:$outputRoot\DollView.Updater.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico",'/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.Web.Extensions.dll','/reference:System.IO.Compression.dll','/reference:System.IO.Compression.FileSystem.dll',(Join-Path $PSScriptRoot 'UpdateFiles.cs'),(Join-Path $PSScriptRoot 'UpdateWorker.cs'),$versionFile)

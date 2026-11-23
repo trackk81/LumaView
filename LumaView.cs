@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 namespace LumaView {
 static class Program {
     [STAThread] static void Main(string[] args) {
+        if(args.Length==2 && args[0]=="--explorer-thumbnail"){Environment.ExitCode=ExplorerThumbnail.Decode(args[1]);return;}
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         if (args.Length > 0 && args[0] == "--self-test") { Tests.Run(); return; }
         Ui.Load();

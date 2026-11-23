@@ -63,8 +63,8 @@ static class ExrAov {
             id^=id>>16;id*=0x85ebca6b;id^=id>>13;id*=0xc2b2ae35;return id^(id>>16);
         }
     }
-    internal static Bitmap TryDecode(string path,int maxWidth,int maxHeight){
-        using(var stream=new BufferedStream(File.OpenRead(path),128*1024))
+    internal static Bitmap TryDecode(string path,int maxWidth,int maxHeight,Func<Stream> open){
+        using(var stream=new BufferedStream(open(),128*1024))
         using(var reader=new BinaryReader(stream)){
             if(stream.Length<8||reader.ReadUInt32()!=20000630)return null;
             uint version=reader.ReadUInt32();

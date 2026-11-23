@@ -78,6 +78,11 @@ static class FileAssociations {
     }
     public static void OpenSelectedDefaults(string[] extensions){Process.Start(new ProcessStartInfo(PrepareSelectedTypes(extensions)){UseShellExecute=true});}
     public static bool HandleInstallerCommand(string[] args){
+        if(args.Length==1&&(args[0]=="--enable-explorer-thumbnails"||args[0]=="--disable-explorer-thumbnails")){
+            try{ExplorerThumbnail.SetEnabled(args[0]=="--enable-explorer-thumbnails");}
+            catch(Exception ex){Console.Error.WriteLine(ex.Message);Environment.ExitCode=1;}
+            return true;
+        }
         if(args.Length==0||!new[]{"--register-associations","--unregister-associations","--prepare-default-associations","--open-selected-defaults"}.Contains(args[0]))return false;
         try{
             if(args[0]=="--register-associations"&&args.Length==1)Register(Extensions);
@@ -130,6 +135,16 @@ sealed class AssociationSettings:UserControl {
     public AssociationSettings(){
         Dock=DockStyle.Fill;
         var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
+        var explorerThumbs=new CheckBox{
+            Text=ComponentSetup.Say("Windows 탐색기 썸네일 (EXR, PSD, HDR, TGA)","Windows Explorer thumbnails (EXR, PSD, HDR, TGA)"),
+            Name="explorerThumbnails",AutoSize=true,Margin=new Padding(0,8,0,12),Checked=ExplorerThumbnail.Enabled
+        };
+        explorerThumbs.Click+=delegate{
+            try{ExplorerThumbnail.SetEnabled(explorerThumbs.Checked);}
+            catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("파일 연결"),MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+            explorerThumbs.Checked=ExplorerThumbnail.Enabled;
+        };
+        content.Controls.Add(explorerThumbs);
         content.Controls.Add(ModernUi.Text(ComponentSetup.Say("묶음을 고르거나 아래에서 확장자를 조정하세요. 연결을 누르면 Windows 기본 앱 설정이 열립니다.","Choose a group or adjust individual extensions below. Click Connect to open Windows default app settings."),true));
         list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
         rowHeight.ImageSize=new Size(1,32);list.SmallImageList=rowHeight;

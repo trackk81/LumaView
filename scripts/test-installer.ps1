@@ -6,6 +6,9 @@ $runRoot=Join-Path $root ('dist\install-test-'+[Guid]::NewGuid().ToString('N'))
 $installRoot=Join-Path $env:LOCALAPPDATA ('LumaView-install-test-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $runRoot | Out-Null
 $setupFull=(Resolve-Path -LiteralPath $SetupPath).Path
+$thumbClass='Registry::HKEY_CURRENT_USER\Software\Classes\CLSID\{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}'
+$testThumbs=!(Test-Path -LiteralPath $thumbClass)
+$tasks=if($testThumbs){'/TASKS="assoc_jpg,assoc_png,explorerthumbnails"'}else{'/TASKS="assoc_jpg,assoc_png"'}
 $extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
 # Snapshot only LumaView-owned registration trees. Never touch FileExts/UserChoice.
 $trees=@('Software\LumaView\Capabilities','Software\LumaView\SelectedCapabilities','Software\Classes\Applications\DollView.exe')
@@ -26,9 +29,13 @@ foreach ($item in $valuePaths) {
     if ($key) { try { if ($key.GetValueNames() -contains $item.Name) { $values[$item.Path+'|'+$item.Name]=@{Value=$key.GetValue($item.Name);Kind=$key.GetValueKind($item.Name)} } } finally { $key.Dispose() } }
 }
 try {
-    $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS="assoc_jpg,assoc_png"',('/DIR="'+$installRoot+'"'),('/LOG="'+(Join-Path $runRoot 'install.log')+'"')) -WindowStyle Hidden -Wait -PassThru
+    $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',$tasks,('/DIR="'+$installRoot+'"'),('/LOG="'+(Join-Path $runRoot 'install.log')+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Setup failed: $($process.ExitCode)" }
-    foreach ($file in @('DollView.exe','unins000.exe','codecs\magick.exe','model-viewer\viewer.js','Microsoft.Web.WebView2.Core.dll')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $file))) { throw "Missing payload: $file" } }
+    if($testThumbs){
+        $server=(Get-Item -LiteralPath "$thumbClass\InProcServer32").GetValue('')
+        if($server -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw 'Explorer thumbnail task registration failed'}
+    }
+    foreach ($file in @('DollView.exe','DollView.Thumbnail.dll','unins000.exe','codecs\magick.exe','model-viewer\viewer.js','Microsoft.Web.WebView2.Core.dll')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $file))) { throw "Missing payload: $file" } }
     $version=(Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip=[IO.Compression.ZipFile]::OpenRead((Join-Path $root "dist\DollView-$version-win-x64.zip"))
@@ -50,6 +57,7 @@ try {
     # Upgrade in place, without launching the app or Windows settings.
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS="assoc_jpg,assoc_png"',('/DIR="'+$installRoot+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw 'Upgrade installation failed' }
+    if($testThumbs -and (Test-Path -LiteralPath $thumbClass)){throw 'Deselected thumbnail task still registered'}
     Write-Output 'PASS in-place reinstall'
     $uninstall=Start-Process -FilePath (Join-Path $installRoot 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
     if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath (Join-Path $installRoot 'DollView.exe'))) { throw 'Uninstall failed' }

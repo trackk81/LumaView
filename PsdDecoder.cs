@@ -308,9 +308,9 @@ static class PsdDecoder {
         }
     }
 
-    public static Size? TryReadSize(string path){
+    public static Size? TryReadSize(Func<Stream> open){
         try{
-            using(var fs=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))
+            using(var fs=open())
             using(var reader=new BinaryReader(fs)){
                 if(fs.Length<26)return null;
                 var sig=reader.ReadBytes(4);
@@ -325,10 +325,10 @@ static class PsdDecoder {
         }catch{return null;}
     }
 
-    public static Bitmap TryDecode(string path,int maxWidth,int maxHeight,out bool missingMergedData){
+    public static Bitmap TryDecode(Func<Stream> open,int maxWidth,int maxHeight,out bool missingMergedData){
         missingMergedData=false;
         try{
-            using(var fs=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))
+            using(var fs=open())
             using(var stream=new BufferedStream(fs,128*1024))
             using(var reader=new BinaryReader(stream)){
                 if(fs.Length<26)return null;
@@ -503,9 +503,9 @@ static class PsdDecoder {
         }
     }
 
-    public static Bitmap TryDecodeThumbnail(string path){
+    public static Bitmap TryDecodeThumbnail(Func<Stream> open){
         try{
-            using(var fs=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))
+            using(var fs=open())
             using(var stream=new BufferedStream(fs,64*1024))
             using(var reader=new BinaryReader(stream)){
                 if(fs.Length<34)return null;
@@ -529,7 +529,7 @@ static class PsdDecoder {
                 using(var ms=new MemoryStream(jpeg))
                 using(var img=Image.FromStream(ms,true,true)){
                     var bmp=new Bitmap(img);
-                    var orig=TryReadSize(path);
+                    var orig=TryReadSize(open);
                     if(orig.HasValue&&(orig.Value.Width!=bmp.Width||orig.Value.Height!=bmp.Height))Album.SetOriginalSize(bmp,orig.Value);
                     return bmp;
                 }

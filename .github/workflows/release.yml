@@ -18,6 +18,9 @@ jobs:
           $version = (Get-Content VERSION -Raw).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid VERSION' }
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag must match VERSION' }
+      - name: Build native Explorer thumbnail provider
+        shell: pwsh
+        run: .\shell-thumbnail\rebuild.ps1
       - name: Test registration and update validation
         shell: pwsh
         run: .\scripts\test-release.ps1 -NoUI
