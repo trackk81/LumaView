@@ -34,7 +34,7 @@ partial class Viewer {
         var refresh=new ModernButton{Text=Ui.T("새로고침")};
         var settings=new ModernButton{Text=Ui.T("설정")};settings.Click+=delegate{ShowSettings();};
         var update=new ModernButton{Name="updateButton",Text=Ui.T("업데이트")};update.Click+=async delegate{await AppUpdater.CheckAsync(this,update);};
-        var actions=ModernUi.Actions(grouping,refresh,settings,update);actions.WrapContents=false;actions.Anchor=AnchorStyles.Right;actions.Margin=Padding.Empty;
+        var actions=ModernUi.Actions(GalleryPrintButton(),grouping,refresh,settings,update);actions.WrapContents=false;actions.Anchor=AnchorStyles.Right;actions.Margin=Padding.Empty;
         heading.Controls.Add(actions,1,0);addressBar.Controls.Add(heading);
         var location=new TableLayoutPanel{ColumnCount=3,AutoSize=true,Margin=Padding.Empty};
         location.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));location.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));location.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -43,7 +43,7 @@ partial class Viewer {
         var address=new ModernCard{Padding=new Padding(12,11,12,11),Margin=new Padding(0,0,10,0),Dock=DockStyle.Fill};address.Controls.Add(folderAddress);
         var chooseFolder=new ModernButton{Text=ComponentSetup.Say("폴더 열기","Open folder"),Margin=Padding.Empty};chooseFolder.Click+=delegate{Folder();};
         location.Controls.Add(up,0,0);location.Controls.Add(address,1,0);location.Controls.Add(chooseFolder,2,0);addressBar.Controls.Add(location);
-        grouping.Click+=delegate{groupSequences=!groupSequences;grouping.Selected=groupSequences;grouping.Invalidate();if(browsingFolder!=null)Browse(browsingFolder);};
+        grouping.Click+=delegate{groupSequences=!groupSequences;canvas.Sidebar.GroupSequences=groupSequences;grouping.Selected=groupSequences;grouping.Invalidate();if(browsingFolder!=null)Browse(browsingFolder);};
         up.Click+=delegate{if(browsingFolder!=null){var p=Directory.GetParent(browsingFolder);if(p!=null)Browse(p.FullName);}};
         refresh.Click+=delegate{if(browsingFolder!=null)Browse(browsingFolder);};
         folderAddress.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){Browse(folderAddress.Text);e.SuppressKeyPress=true;}};
@@ -141,7 +141,7 @@ partial class Viewer {
             info.ToolTipText=path;
             browserFiles=new string[0];
             sequenceGroups=new System.Collections.Generic.Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
-            fileList.Items.Clear();
+            fileList.Items.Clear();UpdatePrintButtons();
             SelectFolderNode(path);
             bool group=groupSequences;
             var listing=await Task.Run(()=>{
@@ -211,7 +211,7 @@ partial class Viewer {
     static Bitmap MakePlaceholder(string label){var b=new Bitmap(160,120);using(var g=Graphics.FromImage(b)){g.Clear(Color.FromArgb(55,59,65));using(var f=new Font("Segoe UI",14))using(var brush=new SolidBrush(Color.Silver))g.DrawString(label,f,brush,new RectangleF(0,45,160,40),new StringFormat{Alignment=StringAlignment.Center});}return b;}
     static Bitmap MakeThumbnail(string path){if(ModelFiles.Supported(path))return ModelFiles.Tile(path);if(MediaFiles.IsVideo(path))return MediaFiles.VideoTile(path);
         string ext=Path.GetExtension(path).ToLowerInvariant();
-        using(var source=ExtendedDecoder.Extensions.Contains(ext)?ExtendedDecoder.Decode(path,320,240):Album.Decode(path)){
+        using(var source=PdfPages.IsPdf(path)?PdfPages.Render(path,0,320):ExtendedDecoder.Extensions.Contains(ext)?ExtendedDecoder.Decode(path,320,240):Album.Decode(path)){
             var b=new Bitmap(160,120);using(var g=Graphics.FromImage(b)){
                 g.Clear(Color.FromArgb(50,54,60));double scale=Math.Min(152.0/source.Width,112.0/source.Height);
                 int w=Math.Max(1,(int)(source.Width*scale)),h=Math.Max(1,(int)(source.Height*scale));var rect=new Rectangle((160-w)/2,(120-h)/2,w,h);
@@ -233,7 +233,7 @@ partial class Viewer {
             }
         }finally{thumbnailWorker.Release();}
     }
-    void UpdateBrowserInfo(){if(full||busy||galleryLoading||galleryClosing||Disposing)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
+    void UpdateBrowserInfo(){UpdatePrintButtons();if(full||busy||galleryLoading||galleryClosing||Disposing)return;string name=fileList.SelectedItems.Count>0?(string)fileList.SelectedItems[0].Tag:"";info.Text=browserFiles.Length+Ui.T("개 파일  ·  더블클릭: 열기")+"  ·  "+Path.GetFileName(name);info.ToolTipText=name;}
     void SyncExplorer(){
         if(!full)ShowFileFolder(album.Current);
     }
@@ -265,30 +265,29 @@ partial class Viewer {
         Invalidate(true);
         Update();
     }
-    async void LoadAsync(string path,int index,string[] wheelFiles=null){
+    async void LoadAsync(string path,int index,string[] wheelFiles=null,int page=0,bool fromDial=false){
         var previousOrder=album.WheelFiles;
         if(path!=null){
             wheelIndex=-1;canvas.Sidebar.Hide();
-            if(wheelFiles==null)dialInput.Reset();
-            else album.WheelFiles=wheelFiles;
-            loadingWheelIndex=wheelFiles==null?-1:Array.IndexOf(wheelFiles,path);
-            wheelTarget=loadingWheelIndex;
-        }else loadingWheelIndex=Array.IndexOf(album.WheelFiles,album.Files[index]);
-        busy=true;UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
+            if(wheelFiles==null){dialInput.Reset();pendingSteps=0;}
+        }
+        busy=true;UpdatePrintButtons();UseWaitCursor=true;info.Text=Ui.T("이미지를 읽는 중…");
         var files=(string[])album.Files.Clone();
         try{
-            var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.OpenFromFolder(path,wheelFiles);else{a.Files=files;a.Select(index);}return a;}catch{a.Dispose();throw;}});
+            var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.OpenFromFolder(path,wheelFiles,page);else{a.Files=files;a.Select(index,page);}return a;}catch{a.Dispose();throw;}});
             if(IsDisposed){next.Dispose();return;}
             if(path!=null)album.WheelFiles=next.WheelFiles;
-            canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;next.Dispose();detailsFile=null;Loaded();
+            canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;album.PageIndex=next.PageIndex;album.PageCount=next.PageCount;next.Dispose();detailsFile=null;Loaded();
             if(enterAfterLoad && !full)EnterImageView();
             if(fullscreenAfterLoad && full)SetImageFullscreen(true);
+            if(full&&sidebarButton.Checked&&(fromDial||wheelFiles!=null||album.PageCount>1||canvas.Sidebar.IsGroupedFrame(album.WheelFiles,album.Current)))RevealImageDial();
+            else canvas.Sidebar.Select(album.WheelFiles,wheelIndex,album.Image,album.PageIndex,album.PageCount);
             if(startSlideAfterLoad && full){startSlideAfterLoad=false;ToggleSlide();}
         }catch(Exception ex){
-            wheelTarget=-1;album.WheelFiles=previousOrder;wheelIndex=Array.IndexOf(previousOrder,album.Current);
+            pendingSteps=0;album.WheelFiles=previousOrder;wheelIndex=Array.IndexOf(previousOrder,album.Current);
             if(!IsDisposed){StopSlide();if(wheelFiles!=null&&album.Image==null)ExitImageView();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}
         }
-        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;loadingWheelIndex=-1;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();ContinueWheel();}}
+        finally{if(startupOpening){startupOpening=false;if(album.Image==null&&!IsDisposed)ExitImageView();}enterAfterLoad=false;fullscreenAfterLoad=false;startSlideAfterLoad=false;busy=false;if(!IsDisposed){UseWaitCursor=false;UpdateInfo();if(!full)UpdateBrowserInfo();ContinueWheel();}}
     }
     void EnterImageView(bool allowEmpty=false){
         if((album.Image==null&&!allowEmpty) || full)return;
@@ -334,7 +333,7 @@ partial class Viewer {
         canvas.Focus();
     }
     void ExitImageView(){
-        wheelTarget=-1;dialInput.Reset();canvas.Sidebar.Hide();
+        pendingSteps=0;dialInput.Reset();canvas.Sidebar.Hide();
         SuspendLayout();
         try{
             if(full){SetImageFullscreen(false);MinimumSize=galleryMinimumSize;}

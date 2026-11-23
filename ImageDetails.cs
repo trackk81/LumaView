@@ -22,7 +22,7 @@ partial class Viewer {
             if(detailsFile==null||detailsFile.FullName!=album.Current)detailsFile=new FileInfo(album.Current);
             long bytes=detailsFile.Length;size=bytes>=1048576?(bytes/1048576.0).ToString("N2")+" MB":(bytes/1024.0).ToString("N1")+" KB";size+=" ("+bytes.ToString("N0")+" bytes)";modified=detailsFile.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
         }catch(IOException){}catch(UnauthorizedAccessException){}
-        canvas.DetailsText=String.Format(Ui.T("파일 이름: {0}  [{1}/{2}]\n파일 크기: {3}\n수정 날짜: {4}\n이미지 정보: {5} × {6} px  ({7})\n화면 배율: {8:0}%"),Path.GetFileName(album.Current),album.Index+1,album.Files.Length,size,modified,orig.Width,orig.Height,Path.GetExtension(album.Current).TrimStart('.').ToUpperInvariant(),zoom);
+        canvas.DetailsText=String.Format(Ui.T("파일 이름: {0}  [{1}/{2}]\n파일 크기: {3}\n수정 날짜: {4}\n이미지 정보: {5} × {6} px  ({7})\n화면 배율: {8:0}%"),album.DisplayName,album.Index+1,album.Files.Length,size,modified,orig.Width,orig.Height,Path.GetExtension(album.Current).TrimStart('.').ToUpperInvariant(),zoom);
     }
 }
 }

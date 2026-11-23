@@ -19,6 +19,17 @@ static class MediaFiles {
     public static string[] ListImagesAndVideos(string directory){
         return Directory.GetFiles(directory).Where(p=>Album.Supported(p)||IsVideo(p)).OrderBy(p=>p,new NaturalSort()).ToArray();
     }
+    // A PDF occupies one folder slot until we know how many pages that step enters.
+    internal static int WheelDestination(string[] files,int current,ref int steps){
+        int direction=Math.Sign(steps),next=current;
+        while(steps!=0){
+            int index=next+direction;
+            if(index<0||index>=files.Length){steps=0;break;}
+            next=index;steps-=direction;
+            if(PdfPages.IsPdf(files[next]))break;
+        }
+        return next;
+    }
     public static bool Supported(string path){return Album.Supported(path)||IsVideo(path)||ModelFiles.Supported(path);}
     [StructLayout(LayoutKind.Sequential)] struct ThumbnailSize { public int Width,Height; }
     [ComImport,Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -141,15 +152,15 @@ partial class Viewer {
         var area=Screen.FromControl(this).WorkingArea;
         var size=new Size(Math.Min(1200,area.Width),Math.Min(820,area.Height));
         var bounds=new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
-        string imagePath=null,lastPath=path;
+        string imagePath=null,lastPath=path;int entryPage=0;
         var placement=fromDial?MediaWindowPlacement.Capture(this,imageFullscreen,oldBounds,oldState):new MediaWindowPlacement{NormalBounds=bounds};
         string[] order=fromDial?album.WheelFiles:null;
         playbackActive=true;
         try{
-            using(var player=new VideoViewer(path,placement,order,dialInput)){
+            using(var player=new VideoViewer(path,placement,order,dialInput,groupSequences)){
                 ShowMediaViewer(player);
                 order=player.WheelFiles;imagePath=player.RequestedImage;lastPath=player.CurrentFile;
-                if(imagePath!=null)placement=player.ImagePlacement;
+                if(imagePath!=null){placement=player.ImagePlacement;entryPage=player.EntryPage;pendingSteps=player.RemainingSteps;}
             }
         }finally{playbackActive=false;startupOpening=false;}
         if(IsDisposed)return;
@@ -164,7 +175,7 @@ partial class Viewer {
                 placement.ApplyWindowed(this);
                 if(placement.FullscreenBounds.HasValue)SetImageFullscreen(true,placement.FullscreenBounds);
             }
-            canvas.Focus();dialInput.ResumeDrag(canvas);LoadAsync(imagePath,-1,order);
+            canvas.Focus();dialInput.ResumeDrag(canvas);LoadAsync(imagePath,-1,order,entryPage,true);
             return;
         }
         dialInput.Reset();
@@ -218,6 +229,7 @@ sealed class VideoViewer : MediaViewerForm {
     readonly ToolStripButton sidebarButton;
     bool dialDirty;
     internal string[] WheelFiles{get;private set;}
+    internal int EntryPage,RemainingSteps;
     internal string RequestedImage{get;private set;}
     internal MediaWindowPlacement ImagePlacement{get;private set;}
     internal string CurrentFile{get{return current??files[index];}}
@@ -236,14 +248,14 @@ sealed class VideoViewer : MediaViewerForm {
     string[] files;
     int index;
     public VideoViewer(string path,Rectangle bounds):this(path,new MediaWindowPlacement{NormalBounds=bounds},null,new MediaDialInput()){}
-    internal VideoViewer(string path,MediaWindowPlacement placement,string[] folderFiles,MediaDialInput input){
+    internal VideoViewer(string path,MediaWindowPlacement placement,string[] folderFiles,MediaDialInput input,bool groupSequences=true){
         Text=AppUpdater.WindowTitle(Path.GetFileName(path));BackColor=Color.Black;ForeColor=Color.White;Font=new Font("Malgun Gothic",9);KeyPreview=true;ImeMode=ImeMode.Disable;FormBorderStyle=FormBorderStyle.Sizable;MinimumSize=new Size(400,310);StartPosition=FormStartPosition.Manual;placement.ApplyWindowed(this);
         path=Path.GetFullPath(path);dialInput=input;
         WheelFiles=folderFiles??MediaFiles.ListImagesAndVideos(Path.GetDirectoryName(path));
         files=WheelFiles.Where(MediaFiles.IsVideo).ToArray();index=Array.FindIndex(files,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
         if(index<0){WheelFiles=files=new[]{path};index=0;}
         wheelIndex=Array.IndexOf(WheelFiles,files[index]);
-        sidebar=new WheelSidebar(host,delegate(Rectangle area){dialDirty=true;});
+        sidebar=new WheelSidebar(host,delegate(Rectangle area){dialDirty=true;}){GroupSequences=groupSequences};
         tools.GripStyle=ToolStripGripStyle.Hidden;tools.Padding=new Padding(10,8,10,8);
         Button(Ui.T("목록으로 (Esc)"),delegate{Close();});
         modeButton=Button(ComponentSetup.Say("전체화면","Fullscreen"),ToggleFullscreen);
@@ -293,12 +305,13 @@ sealed class VideoViewer : MediaViewerForm {
         dialOverlay.Present(this,layer,host.PointToScreen(sidebar.Location),sidebar.Opacity);
     }
     void MoveDial(int steps){
-        int next=Math.Max(0,Math.Min(WheelFiles.Length-1,wheelIndex+steps));
+        int direction=Math.Sign(steps);
+        int next=MediaFiles.WheelDestination(WheelFiles,wheelIndex,ref steps);
         if(next!=wheelIndex){
             string path=WheelFiles[next];
             if(!MediaFiles.IsVideo(path)){
                 ImagePlacement=MediaWindowPlacement.Capture(this,fullscreen,windowBounds,windowState);
-                RequestedImage=path;Close();return;
+                EntryPage=direction<0?-1:0;RemainingSteps=steps;RequestedImage=path;Close();return;
             }
             index=Array.IndexOf(files,path);LoadCurrent();
         }

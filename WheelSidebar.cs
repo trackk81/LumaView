@@ -83,6 +83,13 @@ sealed class WheelSidebar : IDisposable {
     bool visible,loading,disposed;
     Bitmap layer,selectedImage;
     string selectedPath;
+    public bool GroupSequences=true;
+    string[] folderOrder,projected;
+    Dictionary<string,string[]> frameGroups;
+    string[] expandedSequence;
+    string expandedPdf;
+    int expandedPages;
+    bool grouped;
     public float Opacity {get;private set;}
 
     public WheelSidebar(Control target,Action<Rectangle> invalidateArea=null){
@@ -101,14 +108,43 @@ sealed class WheelSidebar : IDisposable {
         };
         return button;
     }
-    public void Reveal(string[] paths,int current,Bitmap image){
+    void PrepareGroups(string[] paths){
+        if(ReferenceEquals(folderOrder,paths)&&grouped==GroupSequences)return;
+        folderOrder=paths;grouped=GroupSequences;projected=null;
+        frameGroups=new Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
+        if(grouped)foreach(var sequence in Sequences.Group(paths).Values)
+            foreach(string frame in sequence)frameGroups.Add(frame,sequence);
+    }
+    internal bool IsGroupedFrame(string[] paths,string path){
+        PrepareGroups(paths);return frameGroups.ContainsKey(path);
+    }
+    // PDF page keys are private to the thumbnail cache. All file commands receive real paths.
+    static string PageKey(string path,int page){return path+"|"+(page+1);}
+    void Project(ref string[] paths,ref int current,int page,int pages){
+        PrepareGroups(paths);
+        string file=paths[current],pdf=pages>1?file:null;
+        string[] sequence;frameGroups.TryGetValue(file,out sequence);
+        if(pdf==null&&frameGroups.Count==0)return;
+        if(projected==null||sequence!=expandedSequence||pdf!=expandedPdf||pages!=expandedPages){
+            var items=new List<string>(paths.Length+pages-1);
+            foreach(string path in paths){
+                if(path==pdf){for(int i=0;i<pages;i++)items.Add(PageKey(path,i));continue;}
+                string[] group;
+                if(!frameGroups.TryGetValue(path,out group)||group==sequence||group[0]==path)items.Add(path);
+            }
+            projected=items.ToArray();expandedSequence=sequence;expandedPdf=pdf;expandedPages=pages;
+        }
+        paths=projected;current=Array.IndexOf(paths,pdf==null?file:PageKey(file,page));
+    }
+    public void Reveal(string[] paths,int current,Bitmap image,int page=0,int pages=1){
         if(disposed||current<0||current>=paths.Length)return;
         visible=true;Opacity=1;hideAt=clock.ElapsedMilliseconds+HoldMs;
-        Select(paths,current,image);
+        Select(paths,current,image,page,pages);
         InvalidateArea();Schedule();
     }
-    public void Select(string[] paths,int current,Bitmap image){
+    public void Select(string[] paths,int current,Bitmap image,int page=0,int pages=1){
         if(!visible||current<0||current>=paths.Length)return;
+        Project(ref paths,ref current,page,pages);
         if(index==current&&selectedPath==paths[current]&&ReferenceEquals(selectedImage,image))return;
         int previous=index;files=paths;index=current;selectedPath=paths[current];selectedImage=image;
         if(previous!=current){
@@ -140,6 +176,9 @@ sealed class WheelSidebar : IDisposable {
     }
     static Bitmap ReadThumbnail(string path){
         try{
+            int separator=path.LastIndexOf('|');
+            if(separator>=0)return PdfPages.Render(path.Substring(0,separator),Int32.Parse(path.Substring(separator+1))-1,192);
+            if(PdfPages.IsPdf(path))return PdfPages.Render(path,0,192);
             if(MediaFiles.IsVideo(path))return MediaFiles.VideoTile(path,true);
             if(!ExtendedDecoder.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant())){
                 using(var shell=MediaFiles.ReadShellThumbnail(path)){
@@ -249,6 +288,16 @@ sealed class WheelSidebar : IDisposable {
                 double scale=Math.Min((w-8)/bitmap.Width,(faceHeight-4)/bitmap.Height);
                 float iw=(float)(bitmap.Width*scale)*width/(w-4),ih=(float)(bitmap.Height*scale)*height/faceHeight;
                 g.DrawImage(bitmap,new RectangleF(rect.Left+(width-iw)/2,mid-ih/2,iw,ih));
+            }
+            int separator=files[fileIndex].LastIndexOf('|');
+            if(separator>=0){
+                string number=files[fileIndex].Substring(separator+1);
+                using(var font=new Font("Segoe UI",Math.Max(8,Math.Min(13,height*.24f)),GraphicsUnit.Pixel))
+                using(var shade=new SolidBrush(Color.FromArgb(195,22,25,30))){
+                    var size=g.MeasureString(number,font);
+                    var label=new RectangleF(rect.Left+3,rect.Bottom-size.Height-3,size.Width+4,size.Height);
+                    g.FillRectangle(shade,label);g.DrawString(number,font,Brushes.White,label.X+2,label.Y);
+                }
             }
             g.Restore(state);
             using(var pen=new Pen(center?Color.FromArgb(255,131,213,240):Color.FromArgb(110,122,136,150),center?2:1))g.DrawPath(pen,path);

@@ -10,7 +10,7 @@ using Microsoft.Win32;
 
 namespace LumaView {
 static class FileAssociations {
-    public static readonly string[] Extensions={".jpg",".jpeg",".png",".bmp",".gif",".tif",".tiff",".ico",".webp",".exr",".psd",".psb",".tga",".hdr",".dpx",".dds",".mp4",".m4v",".mov",".wmv",".avi",".mpg",".mpeg",".mkv",".webm",".obj",".glb",".gltf",".stl",".fbx"};
+    public static readonly string[] Extensions={".jpg",".jpeg",".png",".bmp",".gif",".tif",".tiff",".ico",".webp",".exr",".psd",".psb",".tga",".hdr",".dpx",".dds",".pdf",".mp4",".m4v",".mov",".wmv",".avi",".mpg",".mpeg",".mkv",".webm",".obj",".glb",".gltf",".stl",".fbx"};
     const string Capabilities=@"Software\LumaView\Capabilities";
     [DllImport("shlwapi.dll",CharSet=CharSet.Unicode)] static extern uint AssocQueryString(uint flags,uint kind,string extension,string extra,StringBuilder output,ref uint size);
     [DllImport("shell32.dll")] static extern void SHChangeNotify(uint eventId,uint flags,IntPtr first,IntPtr second);
@@ -188,7 +188,7 @@ sealed class AssociationSettings:UserControl {
         };
         var refresh=new ModernButton{Text=Ui.T("새로고침")};refresh.Click+=delegate{RefreshRows();};
         content.Controls.Add(ModernUi.Actions(
-            GroupButton(ComponentSetup.Say("이미지","Images"),Album.Supported),
+            GroupButton(ComponentSetup.Say("이미지·PDF","Images / PDF"),Album.Supported),
             GroupButton(ComponentSetup.Say("영상","Videos"),MediaFiles.IsVideo),
             GroupButton(ComponentSetup.Say("3D 모델","3D models"),ModelFiles.Supported)));
         content.Controls.Add(ModernUi.Actions(all,clear,refresh));

@@ -11,7 +11,7 @@ static class Sequences {
     public static Dictionary<string,string[]> Group(string[] paths){
         var candidates=new Dictionary<string,List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach(string path in paths){
-            if(!Album.Supported(path))continue;
+            if(PdfPages.IsPdf(path)||!Album.Supported(path))continue;
             var match=Regex.Match(Path.GetFileNameWithoutExtension(path),@"^(.*?)(\d{3,})$");
             if(!match.Success)continue;
             string key=Path.GetDirectoryName(path)+"|"+match.Groups[1].Value+"|"+match.Groups[2].Length+"|"+Path.GetExtension(path);

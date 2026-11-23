@@ -56,11 +56,14 @@ class Album : IDisposable {
     public string[] Files = new string[0];
     public string[] WheelFiles = new string[0];
     public int Index = -1;
+    public int PageIndex, PageCount=1;
+    public string DisplayName { get {return Path.GetFileName(Current)+(PdfPages.IsPdf(Current)?"  ["+(PageIndex+1)+" / "+PageCount+"]":"");} }
     public Bitmap Image;
 
     public string Current { get { return Index >= 0 ? Files[Index] : ""; } }
-    public static bool Supported(string path) { return new[]{".jpg",".jpeg",".png",".bmp",".gif",".tif",".tiff",".ico"}.Concat(ExtendedDecoder.Extensions).Contains(Path.GetExtension(path).ToLowerInvariant()); }
+    public static bool Supported(string path) { return PdfPages.IsPdf(path)||new[]{".jpg",".jpeg",".png",".bmp",".gif",".tif",".tiff",".ico"}.Concat(ExtendedDecoder.Extensions).Contains(Path.GetExtension(path).ToLowerInvariant()); }
     public static Bitmap Decode(string path) {
+        if(PdfPages.IsPdf(path))return PdfPages.Render(path,0,3200);
         if(ExtendedDecoder.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant())) return ExtendedDecoder.Decode(path);
         using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         using (var image = System.Drawing.Image.FromStream(stream, true, true)) {
@@ -96,7 +99,7 @@ class Album : IDisposable {
         }
     }
     public void Open(string path) {OpenFromFolder(path,null);}
-    public void OpenFromFolder(string path,string[] folderFiles) {
+    public void OpenFromFolder(string path,string[] folderFiles,int page=0) {
         path = Path.GetFullPath(path);
         bool directory = Directory.Exists(path);
         WheelFiles=folderFiles??MediaFiles.ListImagesAndVideos(directory?path:Path.GetDirectoryName(path));
@@ -104,16 +107,21 @@ class Album : IDisposable {
         if (files.Length == 0) throw new InvalidDataException("폴더에 지원하는 이미지가 없습니다.");
         int index = directory ? 0 : Array.FindIndex(files,p=>String.Equals(p,path,StringComparison.OrdinalIgnoreCase));
         if (index < 0) throw new InvalidDataException("지원하지 않는 파일 형식입니다.");
-        var next = Decode(files[index]);
-        if (Image != null) Image.Dispose();
-        Image = next; Files = files; Index = index;
+        LoadImage(files[index],page);
+        Files=files;Index=index;
     }
-    public void Select(int index) {
+    public void Select(int index,int page=0) {
         if (Files.Length == 0) return;
         index = Math.Max(0,Math.Min(Files.Length-1,index));
-        var next = Decode(Files[index]);
+        LoadImage(Files[index],page);
+        Index=index;
+    }
+    void LoadImage(string file,int page){
+        int count=1;
+        var next=PdfPages.IsPdf(file)?PdfPages.Render(file,page,3200,out count):Decode(file);
+        PageCount=count;PageIndex=page<0?count-1:Math.Min(page,count-1);
         if (Image != null) Image.Dispose();
-        Image=next; Index=index;
+        Image=next;
     }
     public void Dispose() { if(Image!=null) { Image.Dispose(); Image=null; } }
 }
@@ -314,7 +322,7 @@ partial class Viewer : Form {
     ToolStripButton imageModeButton;
     readonly ToolStripButton sidebarButton;
     readonly MediaDialInput dialInput=new MediaDialInput();
-    int wheelIndex=-1,wheelTarget=-1,loadingWheelIndex=-1;
+    int wheelIndex=-1,pendingSteps;
     FullscreenChrome chrome;
     Rectangle oldBounds;
     Size galleryMinimumSize;
@@ -326,12 +334,12 @@ partial class Viewer : Form {
         Text=AppUpdater.AppTitle; Size=new Size(1200,800); MinimumSize=new Size(720,440); StartPosition=FormStartPosition.CenterScreen;
         Font=new Font("Segoe UI",10); BackColor=Ui.Background; KeyPreview=true; AllowDrop=true;
         toolbar.GripStyle=ToolStripGripStyle.Hidden; toolbar.Padding=new Padding(10,8,10,8); toolbar.BackColor=Color.FromArgb(38,42,48); toolbar.ForeColor=Color.White; toolbar.RenderMode=ToolStripRenderMode.System;
-        AddShortcut(Ui.T("탐색기"),ToggleExplorer,"explorer"); Add(Ui.T("목록"),ShowPicker,"Enter"); AddShortcut(Ui.T("열기"),Choose,"open"); AddShortcut(Ui.T("폴더"),Folder,"folder"); Sep();
+        toolbar.Items.Add(ViewerPrintButton());AddShortcut(Ui.T("탐색기"),ToggleExplorer,"explorer"); Add(Ui.T("목록"),ShowPicker,"Enter"); AddShortcut(Ui.T("열기"),Choose,"open"); AddShortcut(Ui.T("폴더"),Folder,"folder"); Sep();
         AddShortcut(Ui.T("◀ 이전"),delegate{Navigate(-1);},"prev"); AddShortcut(Ui.T("다음 ▶"),delegate{Navigate(1);},"next");
         canvas.Sidebar=new WheelSidebar(canvas);
         sidebarButton=WheelSidebar.ToggleButton(delegate{
             if(!Ui.WheelSidebarEnabled)canvas.Sidebar.Hide();
-            else if(full)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
+            else if(full)RevealImageDial();
             canvas.Focus();
         });
         toolbar.Items.Add(sidebarButton);Sep();
@@ -354,7 +362,11 @@ partial class Viewer : Form {
         SetupWorkspace(); toolbar.Dock=DockStyle.Top; Controls.Add(toolbar); Controls.Add(status); SetupBackgroundMenu(); SetupFileCommands(); toolbar.Visible=false;
         canvas.Changed+=UpdateInfo;canvas.MouseDoubleClick+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left)Fullscreen();};
         dialInput.Attach(canvas,()=>full&&!playbackActive,MoveDial,canvas.ChangeZoom);
-        slide.Interval=3000; slide.Tick+=delegate{ if(album.Files.Length>1) Select((album.Index+1)%album.Files.Length); else StopSlide(); };
+        slide.Interval=3000; slide.Tick+=delegate{
+            if(album.PageIndex+1<album.PageCount)Select(album.Index,album.PageIndex+1);
+            else if(album.Files.Length>1||album.PageCount>1)Select((album.Index+1)%album.Files.Length);
+            else StopSlide();
+        };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
         FormClosed+=delegate{if(chrome!=null)chrome.Dispose();canvas.Sidebar.Dispose();slide.Dispose();album.Dispose();};
@@ -373,43 +385,48 @@ partial class Viewer : Form {
     ToolStripButton AddShortcut(string text,Action action,string actionId) { var b=Add(text,action,Shortcuts.Format(actionId));shortcutButtons[b]=actionId;return b; }
     void RefreshShortcutTooltips() { foreach(var pair in shortcutButtons)pair.Key.ToolTipText=pair.Key.Text+" ("+Shortcuts.Format(pair.Value)+")"; }
     void Sep(){toolbar.Items.Add(new ToolStripSeparator());}
-    void Choose(){using(var d=new OpenFileDialog{Filter="이미지, 영상 및 3D 모델|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff;*.ico;*.exr;*.psd;*.psb;*.webp;*.tga;*.hdr;*.dpx;*.dds;*.mp4;*.m4v;*.mov;*.wmv;*.avi;*.mpg;*.mpeg;*.mkv;*.webm;*.obj;*.glb;*.gltf;*.stl;*.fbx|모든 파일|*.*"})if(d.ShowDialog(this)==DialogResult.OK)Open(d.FileName);}
+    void Choose(){using(var d=new OpenFileDialog{Filter="이미지, PDF, 영상 및 3D 모델|*.pdf;*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff;*.ico;*.exr;*.psd;*.psb;*.webp;*.tga;*.hdr;*.dpx;*.dds;*.mp4;*.m4v;*.mov;*.wmv;*.avi;*.mpg;*.mpeg;*.mkv;*.webm;*.obj;*.glb;*.gltf;*.stl;*.fbx|모든 파일|*.*"})if(d.ShowDialog(this)==DialogResult.OK)Open(d.FileName);}
     void Folder(){using(var d=new FolderBrowserDialog{Description=Ui.T("이미지가 있는 폴더 선택")})if(d.ShowDialog(this)==DialogResult.OK)Open(d.SelectedPath);}
     void Guard(Action action){try{action();}catch(Exception ex){StopSlide();MessageBox.Show(this,ex.Message,Ui.T("이미지를 열 수 없습니다"),MessageBoxButtons.OK,MessageBoxIcon.Information);}}
     void Open(string path){if(busy)return;StopSlide();if(Directory.Exists(path)){if(full)ExitImageView();Browse(path);return;}if(ModelFiles.Supported(path)){OpenModel(path);return;}if(MediaFiles.IsVideo(path)){OpenVideo(path);return;}if(!full)enterAfterLoad=true;LoadAsync(path,-1);}
-    void Select(int index){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)));}
+    void Select(int index,int page=0){if(!busy && album.Files.Length>0)LoadAsync(null,Math.Max(0,Math.Min(album.Files.Length-1,index)),null,page);}
     void Loaded(){
         canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();
         wheelIndex=Array.IndexOf(album.WheelFiles,album.Current);
-        if(full&&sidebarButton.Checked&&wheelTarget>=0)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
-        else canvas.Sidebar.Select(album.WheelFiles,wheelIndex,album.Image);
-        Text=AppUpdater.WindowTitle(Path.GetFileName(album.Current));SyncExplorer();
+        Text=AppUpdater.WindowTitle(album.DisplayName);SyncExplorer();
+    }
+    void RevealImageDial(){
+        canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image,album.PageIndex,album.PageCount);
     }
     void MoveDial(int steps){
-        int from=wheelTarget>=0?wheelTarget:busy?loadingWheelIndex:wheelIndex;
-        if(from<0)return;
-        if(sidebarButton.Checked)canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image);
-        if(steps==0)return;
-        wheelTarget=Math.Max(0,Math.Min(album.WheelFiles.Length-1,from+steps));
+        if(!full)return;
+        if(sidebarButton.Checked)RevealImageDial();
+        pendingSteps+=steps;
         ContinueWheel();
     }
     void ContinueWheel(){
-        if(busy||wheelTarget<0)return;
-        if(!full||wheelTarget==wheelIndex){wheelTarget=-1;return;}
-        string path=album.WheelFiles[wheelTarget];
-        if(MediaFiles.IsVideo(path)){
-            wheelTarget=-1;
-            OpenVideo(path,true);
-        }else Select(Array.IndexOf(album.Files,path));
+        if(busy||!full||pendingSteps==0||wheelIndex<0)return;
+        int page=Math.Max(0,Math.Min(album.PageCount-1,album.PageIndex+pendingSteps));
+        if(page!=album.PageIndex){
+            pendingSteps-=page-album.PageIndex;
+            LoadAsync(null,album.Index,null,page,true);return;
+        }
+        bool backwards=pendingSteps<0;
+        int next=MediaFiles.WheelDestination(album.WheelFiles,wheelIndex,ref pendingSteps);
+        if(next==wheelIndex)return;
+        string path=album.WheelFiles[next];
+        if(MediaFiles.IsVideo(path))OpenVideo(path,true);
+        else LoadAsync(null,Array.IndexOf(album.Files,path),null,backwards?-1:0,true);
     }
-    void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next);}
+    void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int page=album.PageIndex+delta;if(page>=0&&page<album.PageCount){Select(album.Index,page);return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next,delta<0?-1:0);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
     void Rotate(bool clockwise){if(busy || album.Image==null)return;var orig=Album.OriginalSize(album.Image);bool scaled=orig.Width!=album.Image.Width||orig.Height!=album.Image.Height;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);if(scaled)Album.SetOriginalSize(album.Image,new Size(orig.Height,orig.Width));canvas.InvalidateGpuImage();canvas.Reset();}
     void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.InvalidateGpuImage();canvas.Invalidate();canvas.Focus();}
     void ToggleSlide(){if(!full){if(fileList.SelectedItems.Count>0){startSlideAfterLoad=true;OpenSelectedImage();}return;}if(slide.Enabled){StopSlide();return;}if(album.Files.Length==0){Choose();if(album.Files.Length==0)return;}slide.Start();play.Text=Ui.T("Ⅱ 일시정지");UpdateInfo();}
     void StopSlide(){slide.Stop();if(play!=null)play.Text=Ui.T("▶ 슬라이드쇼");UpdateInfo();}
-    void UpdateInfo(){RefreshDetails();if(!full){UpdateBrowserInfo();return;}if(album.Image==null){info.Text=Ui.T("준비  ·  원본 파일을 변경하지 않습니다");return;}var orig=Album.OriginalSize(album.Image);double zoom=canvas.ViewScale*album.Image.Width/Math.Max(1,orig.Width)*100;info.Text=String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,Path.GetFileName(album.Current),orig.Width,orig.Height,zoom,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}
+    void UpdateInfo(){UpdatePrintButtons();RefreshDetails();if(!full){UpdateBrowserInfo();return;}if(album.Image==null){info.Text=Ui.T("준비  ·  원본 파일을 변경하지 않습니다");return;}var orig=Album.OriginalSize(album.Image);double zoom=canvas.ViewScale*album.Image.Width/Math.Max(1,orig.Width)*100;info.Text=String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,album.DisplayName,orig.Width,orig.Height,zoom,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}
     protected override bool ProcessCmdKey(ref Message msg,Keys key){
+        if(key==(Keys.Control|Keys.P)){PrintSelected();return true;}
         if(!folderAddress.Focused){if(key==(Keys.Control|Keys.C)){CopyFile();return true;}if(key==(Keys.Control|Keys.V)){PasteFiles();return true;}if(key==Keys.F2){RenameFile();return true;}}
         if(key==Keys.Escape){enterAfterLoad=false;fullscreenAfterLoad=false;if(full)ExitImageView();StopSlide();return true;}
         if(Shortcuts.Matches("fullscreen",key)){Fullscreen();return true;}

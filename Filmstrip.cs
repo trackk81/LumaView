@@ -41,7 +41,7 @@ class Filmstrip : Control {
                     var thumb=new Bitmap(180,120);
                     using(var g=Graphics.FromImage(thumb)){
                         g.Clear(Color.FromArgb(30,30,30));
-                        try{using(var source=Album.Decode(path)){
+                        try{using(var source=PdfPages.IsPdf(path)?PdfPages.Render(path,0,180):Album.Decode(path)){
                             double scale=Math.Min(174.0/source.Width,114.0/source.Height);
                             int w=Math.Max(1,(int)(source.Width*scale)),h=Math.Max(1,(int)(source.Height*scale));var rect=new Rectangle((180-w)/2,(120-h)/2,w,h);
                             using(var brush=new SolidBrush(color))g.FillRectangle(brush,rect);

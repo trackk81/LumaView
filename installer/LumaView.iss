@@ -66,12 +66,12 @@ korean.TasksInfo=묶음을 선택하거나 확장자를 직접 체크하세요. 
 english.TasksInfo=Choose a group or check individual extensions. After setup, confirm your default apps in Windows Settings.
 korean.GroupPrompt=형식 묶음 선택…
 english.GroupPrompt=Select a group of file types…
-korean.Images=이미지만
-english.Images=Images only
+korean.Images=이미지와 PDF
+english.Images=Images and PDFs
 korean.Videos=영상만
 english.Videos=Videos only
-korean.ImagesVideos=이미지와 영상
-english.ImagesVideos=Images and videos
+korean.ImagesVideos=이미지, PDF와 영상
+english.ImagesVideos=Images, PDFs and videos
 korean.Models=3D 모델만
 english.Models=3D models only
 korean.AllTypes=모든 형식
@@ -165,7 +165,7 @@ end;
 
 procedure InitializeWizard;
 begin
-  Groups[0] := ['jpg','jpeg','png','bmp','gif','tif','tiff','ico','webp','exr','psd','psb','tga','hdr','dpx','dds'];
+  Groups[0] := ['jpg','jpeg','png','bmp','gif','tif','tiff','ico','webp','exr','psd','psb','tga','hdr','dpx','dds','pdf'];
   Groups[1] := ['mp4','m4v','mov','wmv','avi','mpg','mpeg','mkv','webm'];
   Groups[2] := ['obj','glb','gltf','stl','fbx'];
   WizardForm.SelectTasksLabel.Caption := CustomMessage('TasksInfo');

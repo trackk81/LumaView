@@ -14,7 +14,7 @@ $selectedTasks=@('assoc_jpg','assoc_png')
 if($testThumbs){$selectedTasks+='explorerthumbnails'}
 if($testModels){$selectedTasks+='modelthumbnails'}
 $tasks='/TASKS="'+($selectedTasks -join ',')+'"'
-$extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
+$extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,pdf,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
 # Snapshot only LumaView-owned registration trees. Never touch FileExts/UserChoice.
 $trees=@('Software\LumaView\Capabilities','Software\LumaView\SelectedCapabilities','Software\Classes\Applications\DollView.exe')
 $trees += $extensions | ForEach-Object { 'Software\Classes\LumaView.File.'+$_ }

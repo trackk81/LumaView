@@ -13,6 +13,7 @@ Name: "assoc_psb"; Description: ".psb"; GroupDescription: "{cm:Associations}"; F
 Name: "assoc_tga"; Description: ".tga"; GroupDescription: "{cm:Associations}"; Flags: unchecked
 Name: "assoc_hdr"; Description: ".hdr"; GroupDescription: "{cm:Associations}"; Flags: unchecked
 Name: "assoc_dpx"; Description: ".dpx"; GroupDescription: "{cm:Associations}"; Flags: unchecked
+Name: "assoc_pdf"; Description: ".pdf"; GroupDescription: "{cm:Associations}"; Flags: unchecked
 Name: "assoc_dds"; Description: ".dds"; GroupDescription: "{cm:Associations}"; Flags: unchecked
 Name: "assoc_mp4"; Description: ".mp4"; GroupDescription: "{cm:Associations}"; Flags: unchecked
 Name: "assoc_m4v"; Description: ".m4v"; GroupDescription: "{cm:Associations}"; Flags: unchecked
