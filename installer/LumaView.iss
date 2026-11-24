@@ -52,12 +52,8 @@ korean.Associations=기본 앱으로 연결할 확장자 (설치 후 Windows에�
 english.Associations=Extensions to set as defaults (confirm in Windows after setup)
 korean.DesktopIcon=바탕 화면에 바로가기 만들기
 english.DesktopIcon=Create a desktop shortcut
-korean.Thumbnails=Windows 탐색기에 EXR, PSD, HDR, TGA 썸네일 표시
-english.Thumbnails=Show EXR, PSD, HDR and TGA thumbnails in Windows Explorer
-korean.PdfThumbnails=Windows 탐색기에 PDF 첫 페이지 썸네일 표시
-english.PdfThumbnails=Show PDF first-page thumbnails in Windows Explorer
-korean.ModelThumbnails=Windows 탐색기에 3D 모델 썸네일 표시
-english.ModelThumbnails=Show 3D model thumbnails in Windows Explorer
+korean.Thumbnails=Windows 탐색기 썸네일 (이미지 · PDF · 3D 모델)
+english.Thumbnails=Windows Explorer thumbnails (images, PDFs and 3D models)
 korean.ThumbnailError=Windows 탐색기 썸네일 설정에 실패했습니다. DollView 설정의 파일 연결에서 다시 시도해 주세요.
 english.ThumbnailError=Could not configure Explorer thumbnails. Try again in DollView file association settings.
 korean.OpenDefaults=선택한 확장자의 기본 앱 설정 열기
@@ -89,8 +85,6 @@ english.RegisterError=Could not register file types. Try again from file associa
 
 [Tasks]
 Name: "explorerthumbnails"; Description: "{cm:Thumbnails}"
-Name: "pdfthumbnails"; Description: "{cm:PdfThumbnails}"
-Name: "modelthumbnails"; Description: "{cm:ModelThumbnails}"
 #include "association-tasks.iss"
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; Flags: unchecked
 
@@ -107,9 +101,7 @@ Filename: "{app}\DollView.exe"; Parameters: "{code:DefaultsParameters}"; Descrip
 Filename: "{app}\DollView.exe"; Description: "{cm:Launch}"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
-Filename: "{app}\DollView.exe"; Parameters: "--unregister-pdf-thumbnails"; RunOnceId: "UnregisterDollViewPdfThumbnails"; Flags: runhidden waituntilterminated
-Filename: "{app}\DollView.exe"; Parameters: "--disable-model-thumbnails"; RunOnceId: "UnregisterDollViewModelThumbnails"; Flags: runhidden waituntilterminated
-Filename: "{app}\DollView.exe"; Parameters: "--disable-explorer-thumbnails"; RunOnceId: "UnregisterDollViewThumbnails"; Flags: runhidden waituntilterminated
+Filename: "{app}\DollView.exe"; Parameters: "--unregister-all-thumbnails"; RunOnceId: "UnregisterDollViewThumbnails"; Flags: runhidden waituntilterminated
 Filename: "{app}\DollView.exe"; Parameters: "--unregister-associations"; RunOnceId: "UnregisterLumaView"; Flags: runhidden waituntilterminated
 
 [Code]
@@ -221,19 +213,11 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var ExitCode: Integer; Selected, ThumbnailCommand: String;
 begin
   if CurStep = ssPostInstall then begin
-    if WizardIsTaskSelected('explorerthumbnails') then ThumbnailCommand := '--enable-explorer-thumbnails'
-    else ThumbnailCommand := '--disable-explorer-thumbnails';
+    if WizardIsTaskSelected('explorerthumbnails') then ThumbnailCommand := '--enable-all-thumbnails'
+    else ThumbnailCommand := '--disable-all-thumbnails';
     if not Exec(ExpandConstant('{app}\DollView.exe'), ThumbnailCommand, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
       RaiseException(CustomMessage('ThumbnailError'));
     Selected := SelectedExtensions;
-    if WizardIsTaskSelected('pdfthumbnails') then ThumbnailCommand := '--enable-pdf-thumbnails'
-    else ThumbnailCommand := '--disable-pdf-thumbnails';
-    if not Exec(ExpandConstant('{app}\DollView.exe'), ThumbnailCommand, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
-      RaiseException(CustomMessage('ThumbnailError'));
-    if WizardIsTaskSelected('modelthumbnails') then ThumbnailCommand := '--enable-model-thumbnails'
-    else ThumbnailCommand := '--disable-model-thumbnails';
-    if not Exec(ExpandConstant('{app}\DollView.exe'), ThumbnailCommand, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
-      RaiseException(CustomMessage('ThumbnailError'));
     if Selected <> '' then
       if not Exec(ExpandConstant('{app}\DollView.exe'), '--register-associations "' + Selected + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
         RaiseException(CustomMessage('RegisterError'));

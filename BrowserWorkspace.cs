@@ -276,8 +276,8 @@ partial class Viewer {
         try{
             var next=await Task.Run(delegate{var a=new Album();try{if(path!=null)a.OpenFromFolder(path,wheelFiles,page);else{a.Files=files;a.Select(index,page);}return a;}catch{a.Dispose();throw;}});
             if(IsDisposed){next.Dispose();return;}
-            if(path!=null)album.WheelFiles=next.WheelFiles;
-            canvas.Image=null;album.Dispose();album.Image=next.Image;next.Image=null;album.Files=next.Files;album.Index=next.Index;album.PageIndex=next.PageIndex;album.PageCount=next.PageCount;next.Dispose();detailsFile=null;Loaded();
+            if(path==null)next.WheelFiles=previousOrder;
+            canvas.Image=null;album.Dispose();album=next;detailsFile=null;Loaded();
             if(enterAfterLoad && !full)EnterImageView();
             if(fullscreenAfterLoad && full)SetImageFullscreen(true);
             if(full&&sidebarButton.Checked&&(fromDial||wheelFiles!=null||album.PageCount>1||canvas.Sidebar.IsGroupedFrame(album.WheelFiles,album.Current)))RevealImageDial();

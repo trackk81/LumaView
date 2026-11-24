@@ -61,6 +61,7 @@ class Album : IDisposable {
     public int PageIndex, PageCount=1;
     public string DisplayName { get {return Path.GetFileName(Current)+(PdfPages.IsPdf(Current)?"  ["+(PageIndex+1)+" / "+PageCount+"]":"");} }
     public Bitmap Image;
+    internal GifPlayback Animation;
 
     public string Current { get { return Index >= 0 ? Files[Index] : ""; } }
     public static bool Supported(string path) { return PdfPages.IsPdf(path)||new[]{".jpg",".jpeg",".png",".bmp",".gif",".tif",".tiff",".ico"}.Concat(ExtendedDecoder.Extensions).Contains(Path.GetExtension(path).ToLowerInvariant()); }
@@ -120,12 +121,19 @@ class Album : IDisposable {
     }
     void LoadImage(string file,int page){
         int count=1;
-        var next=PdfPages.IsPdf(file)?PdfPages.Render(file,page,3200,out count):Decode(file);
+        Bitmap next;
+        GifPlayback animation=null;
+        if(String.Equals(Path.GetExtension(file),".gif",StringComparison.OrdinalIgnoreCase))animation=GifPlayback.Open(file,out next);
+        else next=PdfPages.IsPdf(file)?PdfPages.Render(file,page,3200,out count):Decode(file);
+        Dispose();
+        Animation=animation;
         PageCount=count;PageIndex=page<0?count-1:Math.Min(page,count-1);
-        if (Image != null) Image.Dispose();
         Image=next;
     }
-    public void Dispose() { if(Image!=null) { Image.Dispose(); Image=null; } }
+    public void Dispose() {
+        if(Animation!=null){Animation.Dispose();Animation=null;}
+        if(Image!=null){Image.Dispose();Image=null;}
+    }
 }
 class Canvas : Control {
     public bool FlipHorizontal,FlipVertical;
@@ -312,12 +320,13 @@ class Canvas : Control {
 partial class Viewer : Form {
     internal string UpdateRestartPath {get{return browsingFolder;}}
     internal void ShowUpdateComplete(){info.Text=Ui.Language=="en"?"Updated to v"+AppUpdater.CurrentVersion:"v"+AppUpdater.CurrentVersion+" 업데이트 완료";}
-    readonly Album album=new Album();
+    Album album=new Album();
     readonly Canvas canvas=new Canvas();
     readonly ToolStrip toolbar=new ViewerToolStrip();
     readonly StatusStrip status=new StatusStrip();
     readonly ToolStripStatusLabel info=new ToolStripStatusLabel();
     readonly Timer slide=new Timer();
+    readonly Timer gifTimer=new Timer();
     ToolStripButton play;
     bool full;
     bool imageFullscreen,fullscreenAfterLoad;
@@ -371,7 +380,10 @@ partial class Viewer : Form {
         };
         DragEnter+=delegate(object s,DragEventArgs e){ if(e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect=DragDropEffects.Copy; };
         DragDrop+=delegate(object s,DragEventArgs e){var paths=(string[])e.Data.GetData(DataFormats.FileDrop);if(paths!=null && paths.Length>0) Open(paths[0]);};
-        FormClosed+=delegate{if(chrome!=null)chrome.Dispose();canvas.Sidebar.Dispose();slide.Dispose();album.Dispose();};
+        gifTimer.Tick+=delegate{UpdateGif();};
+        canvas.VisibleChanged+=delegate{UpdateGif();};
+        Resize+=delegate{UpdateGif();};
+        FormClosed+=delegate{gifTimer.Dispose();if(chrome!=null)chrome.Dispose();canvas.Sidebar.Dispose();slide.Dispose();album.Dispose();};
         Ui.Apply(this);Ui.Apply(toolbar);RefreshShortcutTooltips();
         UpdateInfo(); if(path!=null) Shown+=delegate{
             enterAfterLoad=startupOpening;
@@ -396,6 +408,7 @@ partial class Viewer : Form {
         canvas.Image=album.Image;canvas.Fit=true;canvas.Reset();
         wheelIndex=Array.IndexOf(album.WheelFiles,album.Current);
         Text=AppUpdater.WindowTitle(album.DisplayName);SyncExplorer();
+        UpdateGif();
     }
     void RevealImageDial(){
         canvas.Sidebar.Reveal(album.WheelFiles,wheelIndex,album.Image,album.PageIndex,album.PageCount);
@@ -422,8 +435,35 @@ partial class Viewer : Form {
     }
     void Navigate(int delta){if(!full){if(fileList.Items.Count==0)return;int index=fileList.SelectedIndices.Count>0?fileList.SelectedIndices[0]:0;index=Math.Max(0,Math.Min(fileList.Items.Count-1,index+delta));fileList.Items[index].Selected=true;fileList.Items[index].Focused=true;fileList.Items[index].EnsureVisible();return;}int page=album.PageIndex+delta;if(page>=0&&page<album.PageCount){Select(album.Index,page);return;}int next=album.Index+delta;if(next>=0&&next<album.Files.Length)Select(next,delta<0?-1:0);}
     void Zoom(double factor){canvas.ChangeZoom(factor,new Point(canvas.Width/2,canvas.Height/2));}
-    void Rotate(bool clockwise){if(busy || album.Image==null)return;var orig=Album.OriginalSize(album.Image);bool scaled=orig.Width!=album.Image.Width||orig.Height!=album.Image.Height;album.Image.RotateFlip(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);if(scaled)Album.SetOriginalSize(album.Image,new Size(orig.Height,orig.Width));canvas.InvalidateGpuImage();canvas.Reset();}
-    void FlipImage(bool horizontal){if(busy||album.Image==null)return;album.Image.RotateFlip(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.InvalidateGpuImage();canvas.Invalidate();canvas.Focus();}
+    void UpdateGif(){
+        var animation=album.Animation;
+        if(animation==null||!full||!canvas.Visible||WindowState==FormWindowState.Minimized){
+            gifTimer.Stop();if(animation!=null)animation.Pause();return;
+        }
+        bool changed;
+        int delay;
+        try{
+            delay=animation.Advance(album.Image,out changed);
+            if(changed){canvas.InvalidateGpuImage();canvas.Invalidate();}
+            if(delay==0){gifTimer.Stop();return;}
+            gifTimer.Interval=delay;gifTimer.Start();return;
+        }catch(ExternalException){}catch(ArgumentException){}catch(OutOfMemoryException){}
+        animation.Dispose();album.Animation=null;gifTimer.Stop();
+    }
+    void TransformImage(RotateFlipType transform){
+        if(album.Animation!=null){
+            var old=album.Image;
+            album.Image=album.Animation.Transform(old,transform);
+            canvas.Image=album.Image;
+            canvas.Sidebar.Select(album.WheelFiles,wheelIndex,album.Image);
+            old.Dispose();
+            return;
+        }
+        album.Image.RotateFlip(transform);
+        canvas.InvalidateGpuImage();
+    }
+    void Rotate(bool clockwise){if(busy || album.Image==null)return;var orig=Album.OriginalSize(album.Image);bool scaled=orig.Width!=album.Image.Width||orig.Height!=album.Image.Height;TransformImage(clockwise?RotateFlipType.Rotate90FlipNone:RotateFlipType.Rotate270FlipNone);if(scaled)Album.SetOriginalSize(album.Image,new Size(orig.Height,orig.Width));canvas.Reset();}
+    void FlipImage(bool horizontal){if(busy||album.Image==null)return;TransformImage(horizontal?RotateFlipType.RotateNoneFlipX:RotateFlipType.RotateNoneFlipY);canvas.Invalidate();canvas.Focus();}
     void ToggleSlide(){if(!full){if(fileList.SelectedItems.Count>0){startSlideAfterLoad=true;OpenSelectedImage();}return;}if(slide.Enabled){StopSlide();return;}if(album.Files.Length==0){Choose();if(album.Files.Length==0)return;}slide.Start();play.Text=Ui.T("Ⅱ 일시정지");UpdateInfo();}
     void StopSlide(){slide.Stop();if(play!=null)play.Text=Ui.T("▶ 슬라이드쇼");UpdateInfo();}
     void UpdateInfo(){UpdatePrintButtons();RefreshDetails();if(!full){UpdateBrowserInfo();return;}if(album.Image==null){info.Text=Ui.T("준비  ·  원본 파일을 변경하지 않습니다");return;}var orig=Album.OriginalSize(album.Image);double zoom=canvas.ViewScale*album.Image.Width/Math.Max(1,orig.Width)*100;info.Text=String.Format("  {0} / {1}     {2}     {3} × {4} px     {5:0}%     {6}",album.Index+1,album.Files.Length,album.DisplayName,orig.Width,orig.Height,zoom,slide.Enabled?Ui.T("슬라이드쇼 재생 중"):"");}

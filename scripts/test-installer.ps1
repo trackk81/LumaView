@@ -7,15 +7,12 @@ $installRoot=Join-Path $env:LOCALAPPDATA ('LumaView-install-test-'+[Guid]::NewGu
 New-Item -ItemType Directory -Path $runRoot | Out-Null
 $setupFull=(Resolve-Path -LiteralPath $SetupPath).Path
 $thumbClass='Registry::HKEY_CURRENT_USER\Software\Classes\CLSID\{4B64E150-E9B5-409A-A8F7-02D07D6D1BDD}'
-$testThumbs=!(Test-Path -LiteralPath $thumbClass)
 $pdfClass='Registry::HKEY_CURRENT_USER\Software\Classes\CLSID\{4B64E153-E9B5-409A-A8F7-02D07D6D1BDD}'
-$testPdf=!(Test-Path -LiteralPath $pdfClass)
 $modelClasses=@('{4B64E151-E9B5-409A-A8F7-02D07D6D1BDD}','{4B64E152-E9B5-409A-A8F7-02D07D6D1BDD}') | ForEach-Object { "HKCU:\Software\Classes\CLSID\$_" }
-$testModels=@($modelClasses | Where-Object {Test-Path -LiteralPath $_}).Count -eq 0
+$classes=@($thumbClass,$pdfClass)+$modelClasses
+$testThumbs=@($classes | Where-Object {Test-Path -LiteralPath $_}).Count -eq 0
 $selectedTasks=@('assoc_jpg','assoc_png')
 if($testThumbs){$selectedTasks+='explorerthumbnails'}
-if($testPdf){$selectedTasks+='pdfthumbnails'}
-if($testModels){$selectedTasks+='modelthumbnails'}
 $tasks='/TASKS="'+($selectedTasks -join ',')+'"'
 $extensions='jpg,jpeg,png,bmp,gif,tif,tiff,ico,webp,exr,psd,psb,tga,hdr,dpx,dds,pdf,mp4,m4v,mov,wmv,avi,mpg,mpeg,mkv,webm,obj,glb,gltf,stl,fbx'.Split(',')
 # Snapshot only LumaView-owned registration trees. Never touch FileExts/UserChoice.
@@ -40,14 +37,9 @@ foreach ($item in $valuePaths) {
 try {
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',$tasks,('/DIR="'+$installRoot+'"'),('/LOG="'+(Join-Path $runRoot 'install.log')+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "Setup failed: $($process.ExitCode)" }
-    if($testModels){foreach($key in $modelClasses){
-        if((Get-Item -LiteralPath "$key\InProcServer32").GetValue('') -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw '3D thumbnail registration failed'}
+    if($testThumbs){foreach($key in $classes){
+        if((Get-Item -LiteralPath "$key\InProcServer32").GetValue('') -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw "Combined thumbnail task did not register $key"}
     }}
-    if($testThumbs){
-        $server=(Get-Item -LiteralPath "$thumbClass\InProcServer32").GetValue('')
-        if($server -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw 'Explorer thumbnail task registration failed'}
-    }
-    if($testPdf -and (Get-Item -LiteralPath "$pdfClass\InProcServer32").GetValue('') -ine (Join-Path $installRoot 'DollView.Thumbnail.dll')){throw 'PDF thumbnail registration failed'}
     foreach ($file in @('DollView.exe','DollView.Thumbnail.dll','unins000.exe','codecs\magick.exe','model-viewer\viewer.js','Microsoft.Web.WebView2.Core.dll')) { if (!(Test-Path -LiteralPath (Join-Path $installRoot $file))) { throw "Missing payload: $file" } }
     $version=(Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -70,9 +62,7 @@ try {
     # Upgrade in place, without launching the app or Windows settings.
     $process=Start-Process -FilePath $setupFull -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS="assoc_jpg,assoc_png"',('/DIR="'+$installRoot+'"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw 'Upgrade installation failed' }
-    if($testThumbs -and (Test-Path -LiteralPath $thumbClass)){throw 'Deselected thumbnail task still registered'}
-    if($testPdf -and (Test-Path -LiteralPath $pdfClass)){throw 'Deselected PDF thumbnail task still registered'}
-    if($testModels -and @($modelClasses | Where-Object {Test-Path -LiteralPath $_}).Count){throw 'Deselected 3D thumbnail task still registered'}
+    if($testThumbs -and @($classes | Where-Object {Test-Path -LiteralPath $_}).Count){throw 'Deselected thumbnail task left a provider registered'}
     Write-Output 'PASS in-place reinstall'
     $uninstall=Start-Process -FilePath (Join-Path $installRoot 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -WindowStyle Hidden -Wait -PassThru
     if ($uninstall.ExitCode -ne 0 -or (Test-Path -LiteralPath (Join-Path $installRoot 'DollView.exe'))) { throw 'Uninstall failed' }

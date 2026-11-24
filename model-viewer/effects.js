@@ -3,6 +3,7 @@ import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {SSAOPass} from 'three/addons/postprocessing/SSAOPass.js';
 import {BloomPass} from './bloom.js';
+import {addAnimatedEdges} from './animated-edges.js';
 import {LineSegments2} from 'three/addons/lines/LineSegments2.js';
 import {LineSegmentsGeometry} from 'three/addons/lines/LineSegmentsGeometry.js';
 import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
@@ -19,10 +20,12 @@ export function createEffects(renderer,scene,camera,changed,environment){
  const edgeMaterial=new LineMaterial({color:0x17191d,toneMapped:false,alphaToCoverage:false});
  const edgeGeometry=new Map(),edgeMeshes=[];
  const instanceMatrix=new THREE.Matrix4();
+ let hardEdgesBuilt=false,hasDeformation=false,updateAnimatedEdges;
  function addHardEdges(){
-  if(edgeMeshes.length||!model)return;
+  if(hardEdgesBuilt||!model)return;
+  hardEdgesBuilt=true;
   model.traverse(mesh=>{
-   if(!mesh.isMesh||mesh.isSkinnedMesh||mesh.morphTargetInfluences?.some(weight=>weight!==0))return;
+   if(!mesh.isMesh||mesh.isSkinnedMesh||mesh.geometry.morphAttributes.position?.length)return;
    let geometry=edgeGeometry.get(mesh.geometry);
    if(!geometry){
     const edges=new THREE.EdgesGeometry(mesh.geometry,30);
@@ -42,6 +45,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
  }
  function renderHardEdges(){
   addHardEdges();
+  if(!edgeMeshes.length)return;
   edgeMaterial.linewidth=settings.outlineWidth*renderer.getPixelRatio();
   for(const {mesh,line,index} of edgeMeshes){
    line.visible=true;
@@ -74,7 +78,7 @@ export function createEffects(renderer,scene,camera,changed,environment){
   outline=new OutlinePass(new THREE.Vector2(innerWidth,innerHeight),scene,camera);
   outline.visibleEdgeColor.set(0xffffff);outline.hiddenEdgeColor.set(0x000000);
   outline.overlayMaterial.blending=THREE.NormalBlending;
-  outline.overlayMaterial.fragmentShader=outline.overlayMaterial.fragmentShader.replace('gl_FragColor = finalColor;','gl_FragColor = vec4(vec3(0.015), clamp(max(finalColor.r,max(finalColor.g,finalColor.b)),0.0,1.0));');
+  outline.overlayMaterial.fragmentShader=outline.overlayMaterial.fragmentShader.replace('gl_FragColor = finalColor;','float ink=clamp(max(finalColor.r,max(finalColor.g,finalColor.b)),0.0,1.0); gl_FragColor = vec4(vec3(0.015), ink);');
   composer.addPass(outline);composer.addPass(new OutputPass());
   grade=new ShaderPass({uniforms:{tDiffuse:{value:null},contrast:{value:1},saturation:{value:1}},vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'uniform sampler2D tDiffuse; uniform float contrast; uniform float saturation; varying vec2 vUv; void main(){vec4 c=texture2D(tDiffuse,vUv);float y=dot(c.rgb,vec3(.2126,.7152,.0722));c.rgb=mix(vec3(y),c.rgb,saturation);c.rgb=(c.rgb-.5)*contrast+.5;gl_FragColor=vec4(clamp(c.rgb,0.0,1.0),c.a);}'});
   composer.addPass(grade);fxaa=new ShaderPass(FXAAShader);composer.addPass(fxaa);resize();
@@ -93,7 +97,10 @@ export function createEffects(renderer,scene,camera,changed,environment){
   light=new THREE.DirectionalLight();light.castShadow=true;
   light.shadow.mapSize.set(2048,2048);Object.assign(light.shadow.camera,{left:-radius*1.5,right:radius*1.5,top:radius*1.5,bottom:-radius*1.5,near:radius*.01,far:radius*10});
   light.shadow.camera.updateProjectionMatrix();light.shadow.normalBias=radius*.002;light.shadow.bias=-.0001;light.visible=false;scene.add(light);
-  model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+  model.traverse(o=>{if(o.isMesh){
+   o.castShadow=true;o.receiveShadow=true;
+   if(o.isSkinnedMesh||o.geometry.morphAttributes.position?.length)hasDeformation=true;
+  }});
  }
  function updateShadowLight(){
   if(!light)return;
@@ -145,6 +152,10 @@ export function createEffects(renderer,scene,camera,changed,environment){
    const u=ao.ssaoMaterial.uniforms;u.cameraNear.value=camera.near;u.cameraFar.value=camera.far;u.cameraProjectionMatrix.value.copy(camera.projectionMatrix);u.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);}
   bloom.enabled=useBloom;bloom.strength=settings.bloomStrength;bloom.threshold=settings.bloomThreshold;
   outline.enabled=useOutline;outline.selectedObjects=model?[model]:[];outline.edgeThickness=settings.outlineWidth;outline.edgeStrength=3;
+  if(useOutline&&hasDeformation){
+   if(!updateAnimatedEdges)updateAnimatedEdges=addAnimatedEdges(outline);
+   updateAnimatedEdges(camera,settings.outlineWidth*renderer.getPixelRatio());
+  }
   grade.uniforms.contrast.value=settings.contrast;grade.uniforms.saturation.value=settings.saturation;
   composer.render();
  }

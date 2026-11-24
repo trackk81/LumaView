@@ -29,7 +29,7 @@ $windowsMetadata=Get-ChildItem -LiteralPath $sdkMetadata -Directory | Where-Obje
     Sort-Object { [version]$_.Name } -Descending | ForEach-Object { Join-Path $_.FullName 'Windows.winmd' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (!$windowsMetadata) { throw 'Windows 10 or 11 SDK metadata is required to compile the PDF viewer.' }
 $references += $windowsMetadata
-$names = @('LumaView','ExtendedDecoder','ExplorerThumbnail','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','WheelSidebar','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','PdfPages','Printing','Shortcuts','AppSettings','FileAssociations','ModelViewer','ModelConversion','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
+$names = @('LumaView','GifPlayback','ExtendedDecoder','ExplorerThumbnail','ExrAov','PsdDecoder','Workspace','BrowserWorkspace','ShellIcons','Filmstrip','WheelSidebar','ImageDetails','VideoViewer','MpvPlayer','FullscreenChrome','FileCommands','SequenceViewer','PdfPages','Printing','Shortcuts','AppSettings','FileAssociations','ModelViewer','ModelConversion','AppUpdater','ComponentSetup','ModernUi','GpuCanvas','UpdateFiles')
 $arguments = @('/nologo',"/target:$Target",'/platform:x64','/optimize+',"/out:$outputRoot\DollView.exe","/win32manifest:$PSScriptRoot\app.manifest","/win32icon:$PSScriptRoot\assets\LumaView.ico")
 $arguments += $references | ForEach-Object { "/reference:$_" }
 $arguments += $names | ForEach-Object { Join-Path $PSScriptRoot "$_.cs" }

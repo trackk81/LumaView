@@ -113,6 +113,13 @@ static class FileAssociations {
     }
     public static void OpenSelectedDefaults(string[] extensions){Process.Start(new ProcessStartInfo(PrepareSelectedTypes(extensions)){UseShellExecute=true});}
     public static bool HandleInstallerCommand(string[] args){
+        if(args.Length==1&&(args[0]=="--enable-all-thumbnails"||args[0]=="--disable-all-thumbnails"||args[0]=="--unregister-all-thumbnails")){
+            try{
+                if(args[0]=="--unregister-all-thumbnails")ExplorerThumbnail.UnregisterAll();
+                else ExplorerThumbnail.SetAllEnabled(args[0]=="--enable-all-thumbnails");
+            }catch(Exception ex){Console.Error.WriteLine(ex.Message);Environment.ExitCode=1;}
+            return true;
+        }
         if(args.Length==1&&(args[0]=="--enable-pdf-thumbnails"||args[0]=="--disable-pdf-thumbnails"||args[0]=="--unregister-pdf-thumbnails")){
             try{
                 if(args[0]=="--unregister-pdf-thumbnails")ExplorerThumbnail.UnregisterPdf();
@@ -179,12 +186,17 @@ sealed class AssociationSettings:UserControl {
     readonly ListView list=new ListView{Dock=DockStyle.Fill,View=View.Details,CheckBoxes=true,FullRowSelect=true,HideSelection=false,BorderStyle=BorderStyle.None,ShowItemToolTips=true};
     readonly WrapLabel notice=ModernUi.Text("",true);
     readonly ImageList rowHeight=new ImageList();
+    readonly CheckBox thumbnails=new CheckBox{Name="explorerThumbnails",AutoSize=true,ThreeState=true,AutoCheck=false,Margin=new Padding(0,6,0,8)};
     public AssociationSettings(){
         Dock=DockStyle.Fill;
         var content=new SettingsStack();content.Controls.Add(ModernUi.Text(Ui.T("파일 연결"),false,21,true));
-        content.Controls.Add(ThumbnailOption("explorerThumbnails",ComponentSetup.Say("Windows 탐색기 썸네일 (EXR, PSD, HDR, TGA)","Windows Explorer thumbnails (EXR, PSD, HDR, TGA)"),()=>ExplorerThumbnail.Enabled,ExplorerThumbnail.SetEnabled));
-        content.Controls.Add(ThumbnailOption("pdfThumbnails",ComponentSetup.Say("Windows 탐색기 PDF 첫 페이지 썸네일","Windows Explorer PDF first-page thumbnails"),()=>ExplorerThumbnail.PdfEnabled,ExplorerThumbnail.SetPdfEnabled));
-        content.Controls.Add(ThumbnailOption("modelThumbnails",ComponentSetup.Say("Windows 탐색기 3D 모델 썸네일","Windows Explorer 3D model thumbnails"),()=>ExplorerThumbnail.ModelsEnabled,ExplorerThumbnail.SetModelsEnabled));
+        thumbnails.Text=ComponentSetup.Say("Windows 탐색기 썸네일 (이미지 · PDF · 3D 모델)","Windows Explorer thumbnails (images, PDFs and 3D models)");
+        thumbnails.Click+=delegate{
+            try{ExplorerThumbnail.SetAllEnabled(thumbnails.CheckState!=CheckState.Checked);}
+            catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("파일 연결"),MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+            thumbnails.CheckState=ExplorerThumbnail.CombinedState;
+        };
+        content.Controls.Add(thumbnails);
         content.Controls.Add(ModernUi.Text(ComponentSetup.Say("묶음을 고르거나 아래에서 확장자를 조정하세요. 연결을 누르면 Windows 기본 앱 설정이 열립니다.","Choose a group or adjust individual extensions below. Click Connect to open Windows default app settings."),true));
         list.Columns.Add(Ui.T("확장자"),90);list.Columns.Add(Ui.T("연결 후보"),120);list.Columns.Add(Ui.T("현재 기본 앱"),250);
         rowHeight.ImageSize=new Size(1,32);list.SmallImageList=rowHeight;
@@ -215,15 +227,6 @@ sealed class AssociationSettings:UserControl {
         RefreshRows();Ui.Apply(this);
         Load+=delegate{settingsForm=FindForm();if(settingsForm!=null)settingsForm.Activated+=RefreshOnReturn;};
     }
-    CheckBox ThumbnailOption(string name,string caption,Func<bool> enabled,Action<bool> change){
-        var button=new CheckBox{Name=name,Text=caption,AutoSize=true,Margin=new Padding(0,6,0,8),Checked=enabled()};
-        button.Click+=delegate{
-            try{change(button.Checked);}
-            catch(Exception ex){MessageBox.Show(this,ex.Message,Ui.T("파일 연결"),MessageBoxButtons.OK,MessageBoxIcon.Warning);}
-            button.Checked=enabled();
-        };
-        return button;
-    }
     ModernButton GroupButton(string caption,Func<string,bool> accepts){
         var button=new ModernButton{Text=caption};
         button.Click+=delegate{
@@ -237,6 +240,9 @@ sealed class AssociationSettings:UserControl {
     }
     void RefreshOnReturn(object sender,EventArgs e){if(!IsDisposed&&Visible&&!connecting)RefreshRows();}
     protected override void Dispose(bool disposing){if(disposing){if(settingsForm!=null){settingsForm.Activated-=RefreshOnReturn;settingsForm=null;}rowHeight.Dispose();}base.Dispose(disposing);}
-    void RefreshRows(){var selected=SelectedExtensions;list.BeginUpdate();try{list.Items.Clear();foreach(string extension in FileAssociations.Extensions){bool registered=FileAssociations.Registered(extension);string current=FileAssociations.CurrentApp(extension);list.Items.Add(new ListViewItem(new[]{extension,Ui.T(registered?"등록됨":"미등록"),current}){Tag=extension,Checked=selected.Contains(extension),ToolTipText=extension+" · "+current});}}finally{list.EndUpdate();}}
+    void RefreshRows(){
+        thumbnails.CheckState=ExplorerThumbnail.CombinedState;
+        var selected=SelectedExtensions;list.BeginUpdate();try{list.Items.Clear();foreach(string extension in FileAssociations.Extensions){bool registered=FileAssociations.Registered(extension);string current=FileAssociations.CurrentApp(extension);list.Items.Add(new ListViewItem(new[]{extension,Ui.T(registered?"등록됨":"미등록"),current}){Tag=extension,Checked=selected.Contains(extension),ToolTipText=extension+" · "+current});}}finally{list.EndUpdate();}
+    }
 }
 }

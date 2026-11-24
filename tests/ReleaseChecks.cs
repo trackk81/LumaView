@@ -37,6 +37,17 @@ static void Associations(){
    using(var key=Registry.CurrentUser.OpenSubKey(slot))Check(key.GetValue("").Equals("{4B64E153-E9B5-409A-A8F7-02D07D6D1BDD}"),"register PDF thumbnails independently");
    Call("ExplorerThumbnail","SetPdfEnabled",false);
    using(var key=Registry.CurrentUser.OpenSubKey(slot))Check(key.GetValue("").Equals("Previous.Pdf.Provider"),"restore previous PDF thumbnail provider");
+   Call("ExplorerThumbnail","SetEnabled",true);
+   using(var panel=(Control)Activator.CreateInstance(app.GetType("LumaView.AssociationSettings"))){
+    var toggle=Walk(panel).OfType<CheckBox>().Single();
+    var click=typeof(CheckBox).GetMethod("OnClick",BindingFlags.NonPublic|BindingFlags.Instance);
+    Check(toggle.Name=="explorerThumbnails"&&toggle.CheckState==CheckState.Indeterminate,"one checkbox reflects a mixed legacy selection");
+    click.Invoke(toggle,new object[]{EventArgs.Empty});
+    Check(toggle.CheckState==CheckState.Checked,"one click enables image, PDF and both model providers");
+    click.Invoke(toggle,new object[]{EventArgs.Empty});
+    Check(toggle.CheckState==CheckState.Unchecked,"second click disables every provider");
+    using(var key=Registry.CurrentUser.OpenSubKey(slot))Check(key.GetValue("").Equals("Previous.Pdf.Provider"),"combined switch restores the previous PDF provider");
+   }
    using(var key=Registry.CurrentUser.OpenSubKey(classes+".png",true)){
     Check(logo.Equals(key.GetValue("TypeOverlay")),"image thumbnails use the application logo");
     key.DeleteValue("TypeOverlay");
@@ -117,6 +128,23 @@ static void FbxTextures(){
  }
 }
 static IEnumerable<Control> Walk(Control root){foreach(Control child in root.Controls){yield return child;foreach(var nested in Walk(child))yield return nested;}}
+static void AnimatedGif(){
+ var file=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"animated.gif");
+ var type=app.GetType("LumaView.Album");
+ using(var album=(IDisposable)Activator.CreateInstance(type)){
+  type.GetMethod("Open").Invoke(album,new object[]{file});
+  var animated=type.GetField("Animation",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(album);
+  Check(animated!=null,"opening a multi-frame GIF retains its animation");
+  var bitmap=(Bitmap)type.GetField("Image").GetValue(album);
+  var render=animated.GetType().GetMethod("RenderAt",BindingFlags.NonPublic|BindingFlags.Instance);
+  Func<long,int> at=t=>(int)render.Invoke(animated,new object[]{t,bitmap,false});
+  Check(at(0)==100&&bitmap.GetPixel(5,3).R==255,"GIF first frame and its delay");
+  Check(at(100)==240&&bitmap.GetPixel(18,8).G==128,"GIF second frame and its distinct delay");
+  Check(at(340)==180&&bitmap.GetPixel(30,12).B==255&&bitmap.GetPixel(18,8).A==0,"GIF disposal and transparency");
+  Check(at(520)==100&&bitmap.GetPixel(5,3).R==255&&bitmap.GetPixel(30,12).A==0,"GIF repeat starts with the first frame");
+  Check(at(1040)==0&&bitmap.GetPixel(30,12).B==255,"finite GIF holds its final frame");
+ }
+}
 static void Components(){
  string version="";int installs=0,connections=0;string[] registered=null;
  Func<string> detect=()=>version;
@@ -163,20 +191,21 @@ static void Layout(){
    Check(status.Bottom<=status.Parent.ClientSize.Height&&status.PointToScreen(System.Drawing.Point.Empty).Y>=button.PointToScreen(new System.Drawing.Point(0,button.Height)).Y,"component setup status fits below action in "+language);
    settings.GetType().GetMethod("SelectPage",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(settings,new object[]{2});Application.DoEvents();
    var controls=Walk(settings).Where(c=>c.Visible).ToArray();
-   var images=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"이미지":"Images"));
+   var images=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"이미지·PDF":"Images / PDF"));
    var videos=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"영상":"Videos"));
    var models=controls.OfType<Button>().Single(b=>b.Text==(language=="ko"?"3D 모델":"3D models"));
    var list=controls.OfType<ListView>().Single();
    images.PerformClick();
-   Check(list.CheckedItems.Count==16&&list.CheckedItems.Cast<ListViewItem>().All(i=>(bool)Call("Album","Supported","x"+i.Text)),"image group selects only supported images in "+language);
+   int imageCount=list.Items.Cast<ListViewItem>().Count(i=>(bool)Call("Album","Supported","x"+i.Text));
+   Check(list.CheckedItems.Count==imageCount&&list.CheckedItems.Cast<ListViewItem>().All(i=>(bool)Call("Album","Supported","x"+i.Text)),"image and PDF group selects its supported files in "+language);
    videos.PerformClick();models.PerformClick();
    Check(list.CheckedItems.Count==list.Items.Count,"groups can be combined in "+language);
    images.PerformClick();
-   Check(list.CheckedItems.Count==14,"clearing an image group preserves other groups in "+language);
+   Check(list.CheckedItems.Count==list.Items.Count-imageCount,"clearing an image group preserves other groups in "+language);
    settings.Close();
   }
  }
 }
-[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();FbxTextures();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
+[STAThread]static int Main(string[] args){try{app=Assembly.LoadFrom(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"DollView.exe"));Application.EnableVisualStyles();Associations();Updater();Components();FbxTextures();AnimatedGif();if(!args.Contains("--no-ui"))Layout();Console.WriteLine("PASS release registration, updater, component setup and UI checks.");return 0;}catch(Exception e){Console.WriteLine(e);return 1;}}
 }
 

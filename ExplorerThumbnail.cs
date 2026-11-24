@@ -21,8 +21,7 @@ static class ExplorerThumbnail {
     }
     static bool Same(string left,string right){return String.Equals(left,right,StringComparison.OrdinalIgnoreCase);}
 
-    // A single checkbox can update two COM classes. Restore the original values if
-    // either registration fails, including a provider owned by a different installation.
+    // Roll back all provider and preference changes together if a registration fails.
     sealed class RegistryChanges {
         readonly Stack<Action> undo=new Stack<Action>();
         readonly HashSet<string> emptyKeys=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -97,16 +96,20 @@ static class ExplorerThumbnail {
     static readonly Registration pdfPages=new Registration("{4B64E153-E9B5-409A-A8F7-02D07D6D1BDD}",false,".pdf");
     static readonly Registration models=new Registration("{4B64E151-E9B5-409A-A8F7-02D07D6D1BDD}",false,".obj",".fbx",".stl",".glb");
     static readonly Registration gltf=new Registration("{4B64E152-E9B5-409A-A8F7-02D07D6D1BDD}",true,".gltf");
-    public static bool Enabled{get{return images.Enabled;}}
-    public static bool PdfEnabled{get{return pdfPages.Enabled;}}
+    static readonly Registration[] all={images,pdfPages,models,gltf};
+    internal static CheckState CombinedState{get{
+        int enabled=all.Count(registration=>registration.Enabled);
+        return enabled==all.Length?CheckState.Checked:enabled==0?CheckState.Unchecked:CheckState.Indeterminate;
+    }}
     const string SettingsKey=@"Software\LumaView\ExplorerThumbnails";
     const string PdfPreference="PdfExplorerThumbnails";
     public static void SetPdfEnabled(bool enable){
-        ChangeRegistrations(enable,delegate(RegistryChanges edits){
-            if(!enable&&pdfPages.RegisteredElsewhere)return;
-            pdfPages.Apply(enable,edits);
-            edits.Write(SettingsKey,PdfPreference,enable?1:0,RegistryValueKind.DWord);
-        });
+        ChangeRegistrations(enable,edits=>ApplyPdf(enable,edits));
+    }
+    static void ApplyPdf(bool enable,RegistryChanges edits){
+        if(!enable&&pdfPages.RegisteredElsewhere)return;
+        pdfPages.Apply(enable,edits);
+        edits.Write(SettingsKey,PdfPreference,enable?1:0,RegistryValueKind.DWord);
     }
     internal static void UnregisterPdf(){SetRegistrations(false,pdfPages);}
     static bool ShouldAddPdf(){
@@ -124,12 +127,24 @@ static class ExplorerThumbnail {
             edits.Write(SettingsKey,PdfPreference,1,RegistryValueKind.DWord);
         });
     }
-    public static bool ModelsEnabled{get{return models.Enabled&&gltf.Enabled;}}
     public static void SetEnabled(bool enable){SetRegistrations(enable,images);}
-    public static void SetModelsEnabled(bool enable){
+    static void CheckModelRenderer(bool enable){
         if(enable&&!File.Exists(ModelFiles.ThumbnailRenderer))throw new FileNotFoundException("DollView.Convert.exe",ModelFiles.ThumbnailRenderer);
+    }
+    public static void SetModelsEnabled(bool enable){
+        CheckModelRenderer(enable);
         SetRegistrations(enable,models,gltf);
     }
+    internal static void SetAllEnabled(bool enable){
+        CheckModelRenderer(enable);
+        ChangeRegistrations(enable,delegate(RegistryChanges edits){
+            images.Apply(enable,edits);
+            ApplyPdf(enable,edits);
+            models.Apply(enable,edits);
+            gltf.Apply(enable,edits);
+        });
+    }
+    internal static void UnregisterAll(){SetRegistrations(false,all);}
     [DllImport("shell32.dll")] static extern void SHChangeNotify(uint eventId,uint flags,IntPtr first,IntPtr second);
     static void SetRegistrations(bool enable,params Registration[] registrations){
         ChangeRegistrations(enable,delegate(RegistryChanges edits){foreach(var registration in registrations)registration.Apply(enable,edits);});

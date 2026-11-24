@@ -33,7 +33,7 @@ static class ComponentSetup {
         new[]{Say("3D 포맷 변환기","3D format converter"),"model-converter/DollView.Convert.exe"},
         new[]{Say("영상 재생 · mpv/FFmpeg","Video · mpv/FFmpeg"),"video-runtime/mpv.exe","video-runtime/d3dcompiler_43.dll","video-runtime/mpv/fonts.conf"},
         new[]{Say("확장 이미지 코덱","Extended image codecs"),"codecs/magick.exe"},
-        new[]{Say("3D 뷰어 · HDR 맵 4종","3D viewer · 4 HDR maps"),"Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","model-viewer/index.html","model-viewer/viewer.js","model-viewer/effects.js","model-viewer/animation.js","model-viewer/environment.js","model-viewer/environments/studio_small_09.hdr","model-viewer/environments/studio_small_03.hdr","model-viewer/environments/venice_sunset.hdr","model-viewer/environments/forest_slope.hdr"}
+        new[]{Say("3D 뷰어 · HDR 맵 4종","3D viewer · 4 HDR maps"),"Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll","model-viewer/index.html","model-viewer/viewer.js","model-viewer/effects.js","model-viewer/animated-edges.js","model-viewer/animation.js","model-viewer/environment.js","model-viewer/environments/studio_small_09.hdr","model-viewer/environments/studio_small_03.hdr","model-viewer/environments/venice_sunset.hdr","model-viewer/environments/forest_slope.hdr"}
     };}
     internal static async Task PrepareAsync(string[] extensions,Action<string> report,CancellationToken token){
         var missing=BundledComponents().Where(c=>!HasFiles(c.Skip(1).ToArray())).Select(c=>c[0]).ToArray();
